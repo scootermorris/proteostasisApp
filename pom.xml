@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>edu.ucsf.rbvi</groupId>
+  <artifactId>proteostasisApp</artifactId>
+  <version>1.0.0</version>
+  <packaging>bundle</packaging>
+
+  <name>Proteostasis Network Loader</name>
+  <description>Loads the proteostasis core solver JSON from a URL and builds a Cytoscape network.</description>
+
+  <properties>
+    <maven.compiler.source>11</maven.compiler.source>
+    <maven.compiler.target>11</maven.compiler.target>
+    <cytoscape.api.version>3.10.0</cytoscape.api.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <repositories>
+    <repository>
+      <id>cytoscape_releases</id>
+      <name>Cytoscape Releases</name>
+      <url>https://nrnb-nexus.ucsd.edu/repository/cytoscape_releases/</url>
+    </repository>
+  </repositories>
+
+  <dependencies>
+    <!-- OSGi core -->
+    <dependency>
+      <groupId>org.osgi</groupId>
+      <artifactId>org.osgi.core</artifactId>
+      <version>6.0.0</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.osgi</groupId>
+      <artifactId>org.osgi.compendium</artifactId>
+      <version>4.3.1</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Cytoscape API -->
+    <dependency>
+      <groupId>org.cytoscape</groupId>
+      <artifactId>app-api</artifactId>
+      <version>${cytoscape.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.cytoscape</groupId>
+      <artifactId>model-api</artifactId>
+      <version>${cytoscape.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.cytoscape</groupId>
+      <artifactId>vizmap-api</artifactId>
+      <version>${cytoscape.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.cytoscape</groupId>
+      <artifactId>core-task-api</artifactId>
+      <version>${cytoscape.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.cytoscape</groupId>
+      <artifactId>work-api</artifactId>
+      <version>${cytoscape.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.cytoscape</groupId>
+      <artifactId>service-api</artifactId>
+      <version>${cytoscape.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.cytoscape</groupId>
+      <artifactId>group-api</artifactId>
+      <version>${cytoscape.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+        <dependency>
+      <groupId>org.cytoscape</groupId>
+      <artifactId>layout-api</artifactId>
+      <version>${cytoscape.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- JSON parsing — shade into the bundle -->
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>2.10.1</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <version>5.1.9</version>
+        <extensions>true</extensions>
+        <configuration>
+          <instructions>
+            <Bundle-SymbolicName>edu.ucsf.rbvi.proteostasisApp</Bundle-SymbolicName>
+            <Bundle-Name>Proteostasis Network Loader</Bundle-Name>
+            <Bundle-Version>${project.version}</Bundle-Version>
+            <Bundle-Activator>edu.ucsf.rbvi.proteostasisApp.CyActivator</Bundle-Activator>
+            <Export-Package/>
+            <Private-Package>edu.ucsf.rbvi.proteostasisApp.*</Private-Package>
+            <!-- Shade Gson into the bundle so no OSGi dep needed -->
+            <Embed-Dependency>gson</Embed-Dependency>
+            <Embed-Transitive>true</Embed-Transitive>
+            <Import-Package>
+              org.osgi.framework.*,
+              org.cytoscape.*,
+              javax.swing.*,
+              java.*,
+              *;resolution:=optional
+            </Import-Package>
+            <Cytoscape-App-Dependencies/>
+          </instructions>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
