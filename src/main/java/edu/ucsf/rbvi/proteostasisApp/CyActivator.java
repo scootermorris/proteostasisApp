@@ -5,6 +5,9 @@ import org.cytoscape.service.util.CyServiceRegistrar;
 import org.cytoscape.work.TaskFactory;
 import org.osgi.framework.BundleContext;
 
+import edu.ucsf.rbvi.proteostasisApp.tasks.LoadNetworkTaskFactory;
+import edu.ucsf.rbvi.proteostasisApp.tasks.SolveNetworkTaskFactory;
+
 import java.util.Properties;
 
 /**
@@ -35,6 +38,16 @@ public class CyActivator extends AbstractCyActivator {
         props.setProperty("inToolBar",     "false");
 
         registerService(ctx, factory, TaskFactory.class, props);
+
+				// Register Solve Network menu item
+        SolveNetworkTaskFactory solveFactory = new SolveNetworkTaskFactory(registrar);
+        Properties solveProps = new Properties();
+        solveProps.setProperty("title",         "Solve Network");
+        solveProps.setProperty("preferredMenu", "Apps.Proteostasis");
+        solveProps.setProperty("menuGravity",   "2.0");
+        solveProps.setProperty("inMenuBar",     "true");
+        solveProps.setProperty("inToolBar",     "false");
+        registerService(ctx, solveFactory, TaskFactory.class, solveProps);
 
         System.out.println("[ProteostasisApp] started — Apps > Proteostasis > Load Proteostasis Network");
     }
