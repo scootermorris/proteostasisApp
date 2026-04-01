@@ -101,6 +101,10 @@ public class Utils {
         row.set(NAMESPACE+col, data);
     }
 
+    public static <T> List<T> getList(CyRow row, String col, Class<T> listClass) {
+        return row.getList(NAMESPACE+col, listClass);
+    }
+
     public static String mkCol(String col) {
         return NAMESPACE+col;
     }
