@@ -42,7 +42,7 @@ public class NodeSelectionListener implements RowsSetListener, SetCurrentNetwork
     @Override
     public void handleEvent(RowsSetEvent event) {
         // Only react to changes in the "selected" column
-        if (!event.containsColumn(CyNetwork.SELECTED)) return;
+        if (!event.containsColumn(CyNetwork.SELECTED) || !panel.enabled()) return;
 
         CyApplicationManager appMgr  = registrar.getService(CyApplicationManager.class);
         CyNetwork            network = appMgr.getCurrentNetwork();
@@ -67,14 +67,26 @@ public class NodeSelectionListener implements RowsSetListener, SetCurrentNetwork
     @Override
     public void handleEvent(SetCurrentNetworkEvent event) {
 		CyNetwork network = event.getNetwork();
+        checkNetwork(network);
+    }
+
+    public void checkNetwork(CyNetwork network) {
+        if (network == null) {
+            CyApplicationManager appMgr  = registrar.getService(CyApplicationManager.class);
+            network = appMgr.getCurrentNetwork();
+            if (network == null) return;
+        }
+
         panel.clearSelection();
 
 		// See if this is a proteostasis network
 		if (network.getDefaultNetworkTable().getRow(network.getSUID()).get(CyNetwork.NAME, String.class) != "Proteostasis Core Network") {
 			// No, disable the results panel
+            panel.active(false);
             registrar.unregisterService(panel, CytoPanelComponent.class);
 		} else {
 			// Yes, enable the results panel
+            panel.active(true);
             registrar.registerService(panel, CytoPanelComponent.class, new Properties());
 		}
     }

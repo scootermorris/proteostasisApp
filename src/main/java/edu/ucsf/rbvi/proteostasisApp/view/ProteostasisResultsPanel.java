@@ -89,6 +89,8 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
     private CyNetwork network;
     private CyNode node;
 
+    private boolean enabled;
+
     public ProteostasisResultsPanel(final CyServiceRegistrar registrar) {
         this.registrar = registrar;
 
@@ -99,7 +101,7 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         // ── Header bar ────────────────────────────────────────────────────────
         JPanel header = new JPanel(new BorderLayout());
         header.setBackground(BG_CARD);
-        header.setBorder(new EmptyBorder(12, 14, 12, 14));
+        header.setBorder(new EmptyBorder(5, 10, 5, 10));
         JLabel title = new JLabel("Node Details");
         title.setForeground(FG_DARK);
         title.setFont(new Font("SansSerif", Font.BOLD, 14));
@@ -110,7 +112,7 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         JPanel centre = new JPanel();
         centre.setLayout(new BoxLayout(centre, BoxLayout.Y_AXIS));
         centre.setBackground(BG_DARK);
-        centre.setBorder(new EmptyBorder(10, 10, 10, 10));
+        centre.setBorder(new EmptyBorder(5, 10, 5, 10));
 
         // -- Identity card (node name + class) ---------------------------------
         identityCard = makeCard();
@@ -149,18 +151,33 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         valHsp90 = makeBigValueLabel(ACCENT_HSP90);
 
         dataPanel.add(makeMetricBlock("Total",         valTotal,  ACCENT_TOTAL));
-        dataPanel.add(Box.createVerticalStrut(10));
+        dataPanel.add(Box.createVerticalStrut(5));
         dataPanel.add(makeSeparator());
-        dataPanel.add(Box.createVerticalStrut(10));
+        dataPanel.add(Box.createVerticalStrut(5));
         dataPanel.add(makeMetricBlock("Free",          valFree,   ACCENT_FREE));
-        dataPanel.add(Box.createVerticalStrut(10));
+        dataPanel.add(Box.createVerticalStrut(5));
         dataPanel.add(makeSeparator());
-        dataPanel.add(Box.createVerticalStrut(10));
+        dataPanel.add(Box.createVerticalStrut(5));
         dataPanel.add(makeMetricBlock("Bound to HSP70", valHsp70, ACCENT_HSP70));
-        dataPanel.add(Box.createVerticalStrut(10));
+        dataPanel.add(Box.createVerticalStrut(5));
         dataPanel.add(makeSeparator());
-        dataPanel.add(Box.createVerticalStrut(10));
+        dataPanel.add(Box.createVerticalStrut(5));
         dataPanel.add(makeMetricBlock("Bound to HSP90", valHsp90, ACCENT_HSP90));
+        dataPanel.add(Box.createVerticalStrut(5));
+        dataPanel.add(makeSeparator());
+        dataPanel.add(Box.createVerticalStrut(5));
+        
+        {
+            JButton addButton = new JButton("Add interactor");
+            addButton.setFont(new Font("SansSerif", Font.BOLD, 10));
+            addButton.setForeground(FG_MUTED);
+            addButton.addActionListener(e -> {
+                TaskManager<?, ?> tm = registrar.getService(TaskManager.class);
+                // AddNodeTaskFactory tf = new AddNodeTaskFactory(registrar);
+                // tm.execute(tf.createTaskIterator());
+            });
+            dataPanel.add(addButton);
+        }
 
         centre.add(dataPanel);
 
@@ -284,6 +301,9 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
             repaint();
         });
     }
+
+    public void active(boolean state) { enabled = state; }
+    public boolean enabled() { return enabled; }
 
     // ── CytoPanelComponent ────────────────────────────────────────────────────
 

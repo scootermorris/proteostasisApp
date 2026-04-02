@@ -67,6 +67,9 @@ public class CyActivator extends AbstractCyActivator {
         registerService(ctx, selectionListener, RowsSetListener.class,              new Properties());
         registerService(ctx, selectionListener, SetCurrentNetworkListener.class,    new Properties());
 
+        // ── 4. See if the current network is a proteostasis network ───────────
+				selectionListener.checkNetwork(null);
+
         System.out.println("[ProteostasisApp] started — panel + listener registered");
     }
 }
