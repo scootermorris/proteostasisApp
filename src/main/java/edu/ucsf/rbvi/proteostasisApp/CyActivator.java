@@ -1,31 +1,31 @@
+/* vim: set ts=4 sw=4 et: */
 package edu.ucsf.rbvi.proteostasisApp;
 
 import org.cytoscape.application.events.SetCurrentNetworkListener;
 import org.cytoscape.application.swing.CytoPanelComponent;
-import org.cytoscape.application.swing.CytoPanelState;
 import org.cytoscape.model.events.RowsSetListener;
 import org.cytoscape.service.util.AbstractCyActivator;
 import org.cytoscape.service.util.CyServiceRegistrar;
 import org.cytoscape.work.TaskFactory;
 import org.osgi.framework.BundleContext;
 
-import java.util.Properties;
-
+import edu.ucsf.rbvi.proteostasisApp.tasks.AddNodeTaskFactory;
 import edu.ucsf.rbvi.proteostasisApp.tasks.LoadNetworkTaskFactory;
 import edu.ucsf.rbvi.proteostasisApp.tasks.SolveNetworkTaskFactory;
-import edu.ucsf.rbvi.proteostasisApp.view.ProteostasisResultsPanel;
 import edu.ucsf.rbvi.proteostasisApp.view.NodeSelectionListener;
+import edu.ucsf.rbvi.proteostasisApp.view.ProteostasisResultsPanel;
+
+import java.util.Properties;
 
 /**
- * OSGi bundle activator — entry point for Cytoscape 3 apps.
+ * OSGi bundle activator — entry point for the Proteostasis Cytoscape App.
  *
- * On start() it:
- *   1. Registers the Load / Solve menu TaskFactory services
- *   2. Creates the {@link ProteostasisResultsPanel} and registers it as a
- *      CytoPanelComponent so Cytoscape adds it to the EAST (Results) panel.
- *   3. Creates the {@link NodeSelectionListener} and registers it for both
- *      RowsSetEvent and SetCurrentNetworkEvent so the panel updates whenever
- *      a node is selected or the active network changes.
+ * Registers:
+ *   1. LoadNetworkTaskFactory   → Apps > Proteostasis > Load Proteostasis Network
+ *   2. SolveNetworkTaskFactory  → Apps > Proteostasis > Solve Proteostasis Network
+ *   3. AddNodeTaskFactory       → "Add Interactor" button in Node Details panel
+ *   4. ProteostasisResultsPanel → Cytoscape EAST (Results) panel
+ *   5. NodeSelectionListener    → RowsSetEvent + SetCurrentNetworkEvent listeners
  */
 public class CyActivator extends AbstractCyActivator {
 
@@ -34,43 +34,35 @@ public class CyActivator extends AbstractCyActivator {
 
         CyServiceRegistrar registrar = getService(ctx, CyServiceRegistrar.class);
 
-        // ── 1. Task factories (menu items) ────────────────────────────────────
-        LoadNetworkTaskFactory loadFactory = new LoadNetworkTaskFactory(registrar);
-
+        // ── 1. Load network ───────────────────────────────────────────────────
         Properties loadProps = new Properties();
         loadProps.setProperty("title",         "Load Proteostasis Network");
         loadProps.setProperty("preferredMenu", "Apps.Proteostasis");
         loadProps.setProperty("menuGravity",   "1.0");
         loadProps.setProperty("inMenuBar",     "true");
         loadProps.setProperty("inToolBar",     "false");
+        registerService(ctx, new LoadNetworkTaskFactory(registrar),
+                        TaskFactory.class, loadProps);
 
-        registerService(ctx, loadFactory, TaskFactory.class, loadProps);
-
-        SolveNetworkTaskFactory solveFactory = new SolveNetworkTaskFactory(registrar);
-
+        // ── 2. Solve network ──────────────────────────────────────────────────
         Properties solveProps = new Properties();
         solveProps.setProperty("title",         "Solve Proteostasis Network");
         solveProps.setProperty("preferredMenu", "Apps.Proteostasis");
         solveProps.setProperty("menuGravity",   "2.0");
         solveProps.setProperty("inMenuBar",     "true");
         solveProps.setProperty("inToolBar",     "false");
+        registerService(ctx, new SolveNetworkTaskFactory(registrar),
+                        TaskFactory.class, solveProps);
 
-        registerService(ctx, solveFactory, TaskFactory.class, solveProps);
+        // ── 4. Results panel ──────────────────────────────────────────────────
+        ProteostasisResultsPanel panel = new ProteostasisResultsPanel(registrar);
+        registerService(ctx, panel, CytoPanelComponent.class, new Properties());
 
-        // ── 2. Results panel ──────────────────────────────────────────────────
-        ProteostasisResultsPanel resultsPanel = new ProteostasisResultsPanel(registrar);
-        // registerService(ctx, resultsPanel, CytoPanelComponent.class, new Properties());
-				// resultsPanel.setState(CytoPanelState.HIDE);
+        // ── 5. Selection listeners ────────────────────────────────────────────
+        NodeSelectionListener listener = new NodeSelectionListener(registrar, panel);
+        registerService(ctx, listener, RowsSetListener.class,           new Properties());
+        registerService(ctx, listener, SetCurrentNetworkListener.class, new Properties());
 
-        // ── 3. Node-selection listener ────────────────────────────────────────
-        NodeSelectionListener selectionListener = new NodeSelectionListener(registrar, resultsPanel);
-        registerService(ctx, selectionListener, RowsSetListener.class,              new Properties());
-        registerService(ctx, selectionListener, SetCurrentNetworkListener.class,    new Properties());
-
-        // ── 4. See if the current network is a proteostasis network ───────────
-				selectionListener.checkNetwork(null);
-
-        System.out.println("[ProteostasisApp] started — panel + listener registered");
+        System.out.println("[ProteostasisApp] v2.0.0 started — Load + Solve + panel registered");
     }
 }
-

@@ -172,13 +172,15 @@ public class SolveNetworkTask extends AbstractTask {
 
             CyRow edgeRow   = network.getRow(cyEdge);
             String edgeClass = Utils.getStr(edgeRow,Columns.COL_EDGE_CLASS);
-            Double kdNm      = Utils.getDbl(edgeRow,Columns.COL_KD_NM);
+            Double kduNm      = Utils.getDbl(edgeRow,Columns.COL_KD_U_NM);
+            Double kdpNm      = Utils.getDbl(edgeRow,Columns.COL_KD_P_NM);
 
             JsonObject data = new JsonObject();
             data.addProperty("source", sourceId);
             data.addProperty("target", targetId);
             if (edgeClass != null) data.addProperty("edge_class", edgeClass);
-            if (kdNm      != null) data.addProperty("kd_nM",      kdNm);
+            if (kduNm     != null) data.addProperty("kd_u_nM",      kduNm);
+            if (kdpNm     != null) data.addProperty("kd_p_nM",      kdpNm);
 
             JsonObject edgeObj = new JsonObject();
             edgeObj.add("data", data);
@@ -218,6 +220,7 @@ public class SolveNetworkTask extends AbstractTask {
             if (!ok) {
                 throw new IOException("HTTP " + status + " from solver: " + responseBody);
             }
+						System.out.println("Response: "+responseBody);
             return responseBody;
         }
     }

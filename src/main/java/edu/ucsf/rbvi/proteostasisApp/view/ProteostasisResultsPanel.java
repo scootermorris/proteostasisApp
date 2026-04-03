@@ -6,27 +6,27 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
-
-import java.util.List;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.Icon;
 import javax.swing.JButton;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
 
 import org.cytoscape.application.swing.CytoPanelComponent;
 import org.cytoscape.application.swing.CytoPanelName;
 import org.cytoscape.model.CyEdge;
-import org.cytoscape.model.CyIdentifiable;
 import org.cytoscape.model.CyNetwork;
 import org.cytoscape.model.CyNode;
 import org.cytoscape.model.CyRow;
@@ -34,384 +34,664 @@ import org.cytoscape.service.util.CyServiceRegistrar;
 import org.cytoscape.work.TaskManager;
 
 import edu.ucsf.rbvi.proteostasisApp.Columns;
+import edu.ucsf.rbvi.proteostasisApp.tasks.AddNodeTaskFactory;
 import edu.ucsf.rbvi.proteostasisApp.tasks.SolveNetworkTaskFactory;
 import edu.ucsf.rbvi.proteostasisApp.utils.Utils;
 
 /**
- * A Cytoscape Results Panel (EAST panel) that shows proteostasis
- * concentration data for the currently selected node:
+ * Cytoscape EAST Results Panel for the Proteostasis app.
  *
- *   - total_nM       (total concentration)
- *   - free           (unbound/free concentration)
- *   - bound to HSP70 (edge "bound" column where neighbour == "HSP70")
- *   - bound to HSP90 (edge "bound" column where neighbour == "HSP90")
- *
- * Each metric is shown as a stacked card:
- *   ● LABEL
- *   123.45 nM
- *
- * so the numeric value is always the dominant visual element.
+ * Layout (top to bottom):
+ *   ┌─────────────────────────────────────┐
+ *   │  Header: "Proteostasis Details"      │
+ *   ├─────────────────────────────────────┤
+ *   │  JTabbedPane                        │
+ *   │    Tab 1: Node Details              │
+ *   │      – total_nM (editable)          │
+ *   │      – free_nM, bound→HSP70/90      │
+ *   │      – [Add Interactor] button      │
+ *   │    Tab 2: Edge Details              │
+ *   │      – kd_nM (editable)             │
+ *   │      – bound, frac_bound            │
+ *   ├─────────────────────────────────────┤
+ *   │  Persistent controls strip:         │
+ *   │    ┌──Phosphorylation──┐            │
+ *   │    │  (future content) │            │
+ *   │    └───────────────────┘            │
+ *   │    ┌──Filters──────────┐            │
+ *   │    │  (future content) │            │
+ *   │    └───────────────────┘            │
+ *   │    [  Solve Network  ]              │
+ *   └─────────────────────────────────────┘
  */
 public class ProteostasisResultsPanel extends JPanel implements CytoPanelComponent {
 
     private static final long   serialVersionUID = 1L;
     private static final String PANEL_TITLE      = "Proteostasis";
 
-    // ── Colour palette (matches the app's dark theme) ────────────────────────
-    // private static final Color BG_DARK      = new Color(230, 230, 230);
-    private static final Color BG_DARK      = Color.WHITE;
-    // private static final Color BG_CARD      = new Color(230, 230, 230);
-    private static final Color BG_CARD      = Color.WHITE;
-    private static final Color FG_WHITE     = Color.WHITE;
-    private static final Color FG_DARK      = Color.BLUE;
-    // private static final Color FG_MUTED     = new Color(150, 170, 210);
-    private static final Color FG_MUTED     = Color.BLUE;
-    private static final Color ACCENT_TOTAL = new Color( 74, 222, 128);   // green
-    private static final Color ACCENT_FREE  = new Color(230, 199,  95);   // goldenrod
-    private static final Color ACCENT_HSP70 = new Color( 21,  94, 253);   // blue
-    private static final Color ACCENT_HSP90 = new Color(253,  54,  54);   // red
+    // ── Colour palette ────────────────────────────────────────────────────────
+    private static final Color BG_DARK       = new Color(26,  37,  64);
+    private static final Color BG_CARD       = new Color(13,  25,  50);
+    private static final Color BG_CONTROLS   = new Color(10,  18,  40);
+    private static final Color BG_SUBPANEL   = new Color(18,  30,  58);
+    private static final Color FG_WHITE      = Color.WHITE;
+    private static final Color FG_MUTED      = new Color(150, 170, 210);
+    private static final Color BORDER_DIM    = new Color(42,  74, 127);
+    private static final Color ACCENT_TOTAL  = new Color(249, 115,  22);
+    private static final Color ACCENT_FREE   = new Color( 74, 222, 128);
+    private static final Color ACCENT_HSP70  = new Color( 96, 165, 250);
+    private static final Color ACCENT_HSP90  = new Color(248, 113, 113);
+    private static final Color ACCENT_KD     = new Color(196, 148, 255);
+    private static final Color ACCENT_BOUND  = new Color( 74, 222, 128);
+    private static final Color ACCENT_FRAC   = new Color(251, 191,  36);
+    private static final Color ACCENT_EDIT   = new Color(250, 204,  21);
+    private static final Color ACCENT_ADD    = new Color( 52, 211, 153);  // teal-green for Add button
 
-    // ── Updatable labels ──────────────────────────────────────────────────────
-    private final JLabel lblNodeName;
-    private final JLabel lblNodeClass;
-    private final JTextField valTotal;
-    private final JLabel valFree;
-    private final JLabel valHsp70;
-    private final JLabel valHsp90;
-    private final JLabel noSelectionMsg;
-    private final JPanel identityCard;
-    private final JPanel dataPanel;
-    private final JPanel sliderPanel;
-    private final JPanel filtersPanel;
-    private final JPanel buttonPanel;
-
+    // ── Service registrar ─────────────────────────────────────────────────────
     private final CyServiceRegistrar registrar;
-    private CyNetwork network;
-    private CyNode node;
 
-    private boolean enabled;
+    // ── Node tab fields ───────────────────────────────────────────────────────
+    private final JPanel     nodeIdentCard;
+    private final JLabel     lblNodeName;
+    private final JLabel     lblNodeClass;
+    private final JPanel     nodeDataPanel;
+    private final JTextField fldTotalNm;
+    private final JLabel     valFree;
+    private final JLabel     valHsp70;
+    private final JLabel     valHsp90;
+    private final JLabel     nodeNoSelMsg;
 
-    public ProteostasisResultsPanel(final CyServiceRegistrar registrar) {
+    // ── Edge tab fields ───────────────────────────────────────────────────────
+    private final JPanel     edgeIdentCard;
+    private final JLabel     lblEdgeName;
+    private final JPanel     edgeDataPanel;
+    private final JTextField fldKduNm;
+    private final JTextField fldKdpNm;
+    private final JLabel     valBound;
+    private final JLabel     valFracBound;
+    private final JLabel     edgeNoSelMsg;
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    private CyNetwork currentNetwork;
+    private CyNode    currentNode;
+    private CyEdge    currentEdge;
+
+    public ProteostasisResultsPanel(CyServiceRegistrar registrar) {
         this.registrar = registrar;
-
         setLayout(new BorderLayout());
         setBackground(BG_DARK);
-        setPreferredSize(new Dimension(280, 420));
+        setPreferredSize(new Dimension(290, 560));
 
         // ── Header bar ────────────────────────────────────────────────────────
         JPanel header = new JPanel(new BorderLayout());
-        header.setBackground(BG_CARD);
-        header.setBorder(new EmptyBorder(5, 10, 5, 10));
-        JLabel title = new JLabel("Node Details");
-        title.setForeground(FG_DARK);
-        title.setFont(new Font("SansSerif", Font.BOLD, 14));
+        header.setBackground(new Color(10, 18, 40));
+        header.setBorder(new EmptyBorder(10, 14, 10, 14));
+        JLabel title = new JLabel("Proteostasis Details");
+        title.setForeground(FG_WHITE);
+        title.setFont(new Font("SansSerif", Font.BOLD, 13));
         header.add(title, BorderLayout.WEST);
         add(header, BorderLayout.NORTH);
 
-        // ── Scrollable content area ───────────────────────────────────────────
-        JPanel centre = new JPanel();
-        centre.setLayout(new BoxLayout(centre, BoxLayout.Y_AXIS));
-        centre.setBackground(BG_DARK);
-        centre.setBorder(new EmptyBorder(5, 10, 5, 10));
+        // ── Tabbed pane ───────────────────────────────────────────────────────
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.setBackground(BG_DARK);
+        tabs.setForeground(FG_MUTED);
+        tabs.setFont(new Font("SansSerif", Font.PLAIN, 11));
 
-        // -- Identity card (node name + class) ---------------------------------
-        identityCard = makeCard();
-        identityCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 75));
-        lblNodeName  = new JLabel("—");
-        lblNodeName.setForeground(FG_DARK);
-        lblNodeName.setFont(new Font("SansSerif", Font.BOLD, 15));
-        lblNodeName.setAlignmentX(Component.LEFT_ALIGNMENT);
+        // ════════════════════════════════════════════════════════════════════
+        //  Node Details tab
+        // ════════════════════════════════════════════════════════════════════
+        JPanel nodeTab = new JPanel();
+        nodeTab.setLayout(new BoxLayout(nodeTab, BoxLayout.Y_AXIS));
+        nodeTab.setBackground(BG_DARK);
+        nodeTab.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-        lblNodeClass = new JLabel("");
-        lblNodeClass.setForeground(FG_MUTED);
-        lblNodeClass.setFont(new Font("SansSerif", Font.ITALIC, 11));
-        lblNodeClass.setAlignmentX(Component.LEFT_ALIGNMENT);
+        // Identity card
+        nodeIdentCard = makeCard();
+        lblNodeName   = makeLabel("—", FG_WHITE, 14, Font.BOLD);
+        lblNodeClass  = makeLabel("",  FG_MUTED, 10, Font.ITALIC);
+        nodeIdentCard.add(lblNodeName);
+        nodeIdentCard.add(Box.createVerticalStrut(3));
+        nodeIdentCard.add(lblNodeClass);
+        nodeTab.add(nodeIdentCard);
+        nodeTab.add(Box.createVerticalStrut(8));
 
-        identityCard.add(lblNodeName);
-        identityCard.add(Box.createVerticalStrut(3));
-        identityCard.add(lblNodeClass);
-        centre.add(identityCard);
-        centre.add(Box.createVerticalStrut(8));
+        // Concentrations card
+        nodeDataPanel = makeCard();
 
-        // -- Concentrations card -----------------------------------------------
-        dataPanel = makeCard();
-        dataPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        JLabel nodeConcsTitle = makeLabel("CONCENTRATIONS", FG_MUTED, 9, Font.BOLD);
+        nodeConcsTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        nodeDataPanel.add(nodeConcsTitle);
+        nodeDataPanel.add(Box.createVerticalStrut(8));
 
-        JLabel concTitle = new JLabel("Concentrations");
-        concTitle.setForeground(FG_MUTED);
-        concTitle.setFont(new Font("SansSerif", Font.BOLD, 10));
-        concTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
-        dataPanel.add(concTitle);
-        dataPanel.add(Box.createVerticalStrut(10));
+        fldTotalNm = makeEditField(ACCENT_TOTAL);
+        nodeDataPanel.add(makeEditRow("Total (nM)", fldTotalNm, ACCENT_TOTAL));
+        nodeDataPanel.add(Box.createVerticalStrut(2));
+        nodeDataPanel.add(makeEditHint("Edit and Solve to update"));
+        nodeDataPanel.add(Box.createVerticalStrut(10));
+        nodeDataPanel.add(makeSeparator());
+        nodeDataPanel.add(Box.createVerticalStrut(10));
 
-        // Create value labels — big, monospaced, coloured
-        valTotal = makeEditableBigValueLabel(ACCENT_TOTAL, CyNode.class, Columns.COL_TOTAL_NM); // Make edtiable
-        valFree  = makeBigValueLabel(ACCENT_FREE);
-        valHsp70 = makeBigValueLabel(ACCENT_HSP70);
-        valHsp90 = makeBigValueLabel(ACCENT_HSP90);
+        valFree  = makeBigLabel(ACCENT_FREE);
+        valHsp70 = makeBigLabel(ACCENT_HSP70);
+        valHsp90 = makeBigLabel(ACCENT_HSP90);
 
-        dataPanel.add(makeMetricBlock("Total",         valTotal,  ACCENT_TOTAL));
-        dataPanel.add(Box.createVerticalStrut(5));
-        dataPanel.add(makeSeparator());
-        dataPanel.add(Box.createVerticalStrut(5));
-        dataPanel.add(makeMetricBlock("Free",          valFree,   ACCENT_FREE));
-        dataPanel.add(Box.createVerticalStrut(5));
-        dataPanel.add(makeSeparator());
-        dataPanel.add(Box.createVerticalStrut(5));
-        dataPanel.add(makeMetricBlock("Bound to HSP70", valHsp70, ACCENT_HSP70));
-        dataPanel.add(Box.createVerticalStrut(5));
-        dataPanel.add(makeSeparator());
-        dataPanel.add(Box.createVerticalStrut(5));
-        dataPanel.add(makeMetricBlock("Bound to HSP90", valHsp90, ACCENT_HSP90));
-        dataPanel.add(Box.createVerticalStrut(5));
-        dataPanel.add(makeSeparator());
-        dataPanel.add(Box.createVerticalStrut(5));
-        
-        {
-            JButton addButton = new JButton("Add interactor");
-            addButton.setFont(new Font("SansSerif", Font.BOLD, 10));
-            addButton.setForeground(FG_MUTED);
-            addButton.addActionListener(e -> {
-                TaskManager<?, ?> tm = registrar.getService(TaskManager.class);
-                // AddNodeTaskFactory tf = new AddNodeTaskFactory(registrar);
-                // tm.execute(tf.createTaskIterator());
-            });
-            dataPanel.add(addButton);
-        }
+        nodeDataPanel.add(makeMetricBlock("Free (nM)",      valFree,  ACCENT_FREE));
+        nodeDataPanel.add(Box.createVerticalStrut(8));
+        nodeDataPanel.add(makeSeparator());
+        nodeDataPanel.add(Box.createVerticalStrut(8));
+        nodeDataPanel.add(makeMetricBlock("Bound to HSP70", valHsp70, ACCENT_HSP70));
+        nodeDataPanel.add(Box.createVerticalStrut(8));
+        nodeDataPanel.add(makeSeparator());
+        nodeDataPanel.add(Box.createVerticalStrut(8));
+        nodeDataPanel.add(makeMetricBlock("Bound to HSP90", valHsp90, ACCENT_HSP90));
 
-        centre.add(dataPanel);
+        // ── Add Interactor button — below HSP90 data ──────────────────────────
+        nodeDataPanel.add(Box.createVerticalStrut(12));
+        nodeDataPanel.add(makeSeparator());
+        nodeDataPanel.add(Box.createVerticalStrut(10));
+        nodeDataPanel.add(makeAddInteractorButton());
 
-        // -- Phosphorylation sliders ------------------------------------------
-        sliderPanel = makeCard();
-        JLabel sliderTitle = new JLabel("Phosphorylation sliders");
-        sliderTitle.setForeground(FG_MUTED);
-        sliderTitle.setFont(new Font("SansSerif", Font.BOLD, 10));
-        sliderTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
-        sliderPanel.add(sliderTitle);
-        sliderPanel.add(Box.createVerticalStrut(10));
+        nodeTab.add(nodeDataPanel);
 
-        centre.add(sliderPanel);
-
-        // -- Filters ----------------------------------------------------------
-        filtersPanel = makeCard();
-        JLabel filtersTitle = new JLabel("Filters");
-        filtersTitle.setForeground(FG_MUTED);
-        filtersTitle.setFont(new Font("SansSerif", Font.BOLD, 10));
-        filtersTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
-        filtersPanel.add(filtersTitle);
-        filtersPanel.add(Box.createVerticalStrut(10));
-
-        centre.add(filtersPanel);
-
-        // -- Action buttons ---------------------------------------------------
-        buttonPanel = makeCard();
-        JButton resolveButton = new JButton("Solve Network");
-        resolveButton.setFont(new Font("SansSerif", Font.BOLD, 10));
-        resolveButton.setForeground(FG_MUTED);
-        resolveButton.addActionListener(e -> {
-            TaskManager<?, ?> tm = registrar.getService(TaskManager.class);
-            SolveNetworkTaskFactory tf = new SolveNetworkTaskFactory(registrar);
-            tm.execute(tf.createTaskIterator());
-        });
-        buttonPanel.add(resolveButton);
-        buttonPanel.add(Box.createVerticalStrut(10));
-
-        centre.add(buttonPanel);
-
-        // -- No-selection placeholder ------------------------------------------
-        noSelectionMsg = new JLabel(
+        // No-selection placeholder
+        nodeNoSelMsg = makeLabel(
                 "<html><center>Select a node<br>to view details</center></html>",
-                SwingConstants.CENTER);
-        noSelectionMsg.setForeground(FG_MUTED);
-        noSelectionMsg.setFont(new Font("SansSerif", Font.ITALIC, 12));
-        noSelectionMsg.setAlignmentX(Component.CENTER_ALIGNMENT);
-        noSelectionMsg.setBorder(new EmptyBorder(40, 10, 10, 10));
-        centre.add(Box.createVerticalStrut(10));
-        centre.add(noSelectionMsg);
+                FG_MUTED, 12, Font.ITALIC);
+        nodeNoSelMsg.setAlignmentX(Component.CENTER_ALIGNMENT);
+        nodeNoSelMsg.setBorder(new EmptyBorder(30, 10, 10, 10));
+        nodeNoSelMsg.setHorizontalAlignment(SwingConstants.CENTER);
+        nodeTab.add(Box.createVerticalStrut(10));
+        nodeTab.add(nodeNoSelMsg);
 
-        JScrollPane scroll = new JScrollPane(centre);
-        scroll.setBorder(null);
-        scroll.setBackground(BG_DARK);
-        scroll.getViewport().setBackground(BG_DARK);
-        add(scroll, BorderLayout.CENTER);
+        nodeIdentCard.setVisible(false);
+        nodeDataPanel.setVisible(false);
 
-        // Initial state: data hidden, placeholder visible
-        identityCard.setVisible(false);
-        dataPanel.setVisible(false);
-        sliderPanel.setVisible(false);
-        filtersPanel.setVisible(false);
-        buttonPanel.setVisible(false);
+        tabs.addTab("Node Details", scrollWrap(nodeTab));
+
+        // ════════════════════════════════════════════════════════════════════
+        //  Edge Details tab
+        // ════════════════════════════════════════════════════════════════════
+        JPanel edgeTab = new JPanel();
+        edgeTab.setLayout(new BoxLayout(edgeTab, BoxLayout.Y_AXIS));
+        edgeTab.setBackground(BG_DARK);
+        edgeTab.setBorder(new EmptyBorder(10, 10, 10, 10));
+
+        edgeIdentCard = makeCard();
+        lblEdgeName   = makeLabel("—", FG_WHITE, 12, Font.BOLD);
+        lblEdgeName.setAlignmentX(Component.LEFT_ALIGNMENT);
+        edgeIdentCard.add(lblEdgeName);
+        edgeTab.add(edgeIdentCard);
+        edgeTab.add(Box.createVerticalStrut(8));
+
+        edgeDataPanel = makeCard();
+        JLabel edgeDataTitle = makeLabel("EDGE DATA", FG_MUTED, 9, Font.BOLD);
+        edgeDataTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        edgeDataPanel.add(edgeDataTitle);
+        edgeDataPanel.add(Box.createVerticalStrut(8));
+
+        fldKduNm = makeEditField(ACCENT_KD);
+        fldKdpNm = makeEditField(ACCENT_KD);
+        edgeDataPanel.add(makeEditRow("Kd unphosphorylated (nM)", fldKduNm, ACCENT_KD));
+        edgeDataPanel.add(Box.createVerticalStrut(2));
+        edgeDataPanel.add(makeEditRow("Kd phosphorylated (nM)", fldKdpNm, ACCENT_KD));
+        edgeDataPanel.add(Box.createVerticalStrut(2));
+        edgeDataPanel.add(makeEditHint("Edit and Solve to update"));
+        edgeDataPanel.add(Box.createVerticalStrut(10));
+        edgeDataPanel.add(makeSeparator());
+        edgeDataPanel.add(Box.createVerticalStrut(10));
+
+        valBound     = makeBigLabel(ACCENT_BOUND);
+        valFracBound = makeBigLabel(ACCENT_FRAC);
+        edgeDataPanel.add(makeMetricBlock("Bound (nM)", valBound,     ACCENT_BOUND));
+        edgeDataPanel.add(Box.createVerticalStrut(8));
+        edgeDataPanel.add(makeSeparator());
+        edgeDataPanel.add(Box.createVerticalStrut(8));
+        edgeDataPanel.add(makeMetricBlock("Frac Bound", valFracBound, ACCENT_FRAC));
+
+        edgeTab.add(edgeDataPanel);
+
+        edgeNoSelMsg = makeLabel(
+                "<html><center>Select an edge<br>to view details</center></html>",
+                FG_MUTED, 12, Font.ITALIC);
+        edgeNoSelMsg.setAlignmentX(Component.CENTER_ALIGNMENT);
+        edgeNoSelMsg.setBorder(new EmptyBorder(30, 10, 10, 10));
+        edgeNoSelMsg.setHorizontalAlignment(SwingConstants.CENTER);
+        edgeTab.add(Box.createVerticalStrut(10));
+        edgeTab.add(edgeNoSelMsg);
+
+        edgeIdentCard.setVisible(false);
+        edgeDataPanel.setVisible(false);
+
+        tabs.addTab("Edge Details", scrollWrap(edgeTab));
+
+        add(tabs, BorderLayout.CENTER);
+
+        // ── Persistent controls strip ─────────────────────────────────────────
+        add(buildControlsStrip(), BorderLayout.SOUTH);
+
+        // Wire editable fields
+        wireTotalNmField();
+        wireKdNmuField();
+        wireKdNmpField();
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /** Show concentration data for the given selected node. */
     public void showNode(CyNetwork network, CyNode node) {
-        this.network = network;
-        this.node = node;
-
         SwingUtilities.invokeLater(() -> {
-            CyRow row          = network.getRow(node);
-            String name        = row.get(CyNetwork.NAME,               String.class);
-            String nodeClass   = Utils.getStr(row, Columns.COL_NODE_CLASS);
-            Double total       = Utils.getDbl(row, Columns.COL_TOTAL_NM);
-            Double free        = Utils.getDbl(row, Columns.COL_FREE);
-            List<Double> bound = Utils.getList(row, Columns.COL_BOUND, Double.class);
+            this.currentNetwork = network;
+            this.currentNode    = node;
+            this.currentEdge    = null;
 
-            // Update all labels
-            lblNodeName.setText(name      != null ? name      : "—");
-            lblNodeClass.setText(nodeClass != null ? nodeClass : "");
+            CyRow  row       = network.getRow(node);
+            String name      = row.get(CyNetwork.NAME, String.class);
+            String nodeClass = Utils.getStr(row, Columns.COL_NODE_CLASS);
+            Double total     = Utils.getDbl(row, Columns.COL_TOTAL_NM);
+            Double free      = Utils.getDbl(row, Columns.COL_FREE);
 
-            valTotal.setText(formatNm(total));
-            valFree.setText(formatNm(free));
+            double  hsp70Bound = 0.0, hsp90Bound = 0.0;
+            boolean hasHsp70   = false, hasHsp90   = false;
 
-            if (nodeClass.equals("chaperone")) {
-                valHsp70.setText("-");
-                valHsp90.setText("-");
-            } else {
-                double  hsp70Bound = bound.get(1);
-                double  hsp90Bound = bound.get(2);
-
-                valHsp70.setText(formatNm(hsp70Bound));
-                valHsp90.setText(formatNm(hsp90Bound));
+            for (CyEdge edge : network.getAdjacentEdgeList(node, CyEdge.Type.ANY)) {
+                CyNode other     = edge.getSource().equals(node) ? edge.getTarget() : edge.getSource();
+                String otherName = network.getRow(other).get(CyNetwork.NAME, String.class);
+                Double bound     = Utils.getDbl(network.getRow(edge), Columns.COL_BOUND);
+                if (bound == null) continue;
+                if ("HSP70".equals(otherName)) { hsp70Bound = bound; hasHsp70 = true; }
+                else if ("HSP90".equals(otherName)) { hsp90Bound = bound; hasHsp90 = true; }
             }
 
-            identityCard.setVisible(true);
-            dataPanel.setVisible(true);
-            sliderPanel.setVisible(true);
-            filtersPanel.setVisible(true);
-            buttonPanel.setVisible(true);
-            noSelectionMsg.setVisible(false);
+            lblNodeName.setText(name      != null ? name      : "—");
+            lblNodeClass.setText(nodeClass != null ? nodeClass : "");
+            fldTotalNm.setText(formatNm(total));
+            valFree.setText(formatNm(free));
+            valHsp70.setText(hasHsp70 ? formatNm(hsp70Bound) : "N/A");
+            valHsp90.setText(hasHsp90 ? formatNm(hsp90Bound) : "N/A");
 
-            revalidate();
-            repaint();
+            nodeIdentCard.setVisible(true);
+            nodeDataPanel.setVisible(true);
+            nodeNoSelMsg.setVisible(false);
+            revalidate(); repaint();
         });
     }
 
-    /** Clear the panel when selection is empty or multi-node. */
+    public void showEdge(CyNetwork network, CyEdge edge) {
+        SwingUtilities.invokeLater(() -> {
+            this.currentNetwork = network;
+            this.currentEdge    = edge;
+            this.currentNode    = null;
+
+            CyRow  row      = network.getRow(edge);
+            String edgeName = row.get(CyNetwork.NAME, String.class);
+            Double kdu      = Utils.getDbl(row, Columns.COL_KD_U_NM);
+            Double kdp      = Utils.getDbl(row, Columns.COL_KD_P_NM);
+            Double bound    = Utils.getDbl(row, Columns.COL_BOUND);
+            Double frac     = Utils.getDbl(row, Columns.COL_FRAC_BOUND);
+
+            lblEdgeName.setText(edgeName != null ? edgeName : "—");
+            fldKduNm.setText(kdu != null ? String.format("%.4g", kdu) : "—");
+            fldKdpNm.setText(kdp != null ? String.format("%.4g", kdp) : "—");
+            valBound.setText(formatNm(bound));
+            valFracBound.setText(frac != null ? String.format("%.4f", frac) : "—");
+
+            edgeIdentCard.setVisible(true);
+            edgeDataPanel.setVisible(true);
+            edgeNoSelMsg.setVisible(false);
+            revalidate(); repaint();
+        });
+    }
+
     public void clearSelection() {
         SwingUtilities.invokeLater(() -> {
-            identityCard.setVisible(false);
-            dataPanel.setVisible(false);
-            sliderPanel.setVisible(false);
-            filtersPanel.setVisible(false);
-            buttonPanel.setVisible(false);
-            noSelectionMsg.setVisible(true);
-            revalidate();
-            repaint();
+            this.currentNode = null;
+            this.currentEdge = null;
+
+            nodeIdentCard.setVisible(false);
+            nodeDataPanel.setVisible(false);
+            nodeNoSelMsg.setVisible(true);
+
+            edgeIdentCard.setVisible(false);
+            edgeDataPanel.setVisible(false);
+            edgeNoSelMsg.setVisible(true);
+
+            revalidate(); repaint();
         });
     }
-
-    public void active(boolean state) { enabled = state; }
-    public boolean enabled() { return enabled; }
 
     // ── CytoPanelComponent ────────────────────────────────────────────────────
 
-    @Override public Component      getComponent()       { return this; }
-    @Override public CytoPanelName  getCytoPanelName()   { return CytoPanelName.EAST; }
-    @Override public String         getTitle()           { return PANEL_TITLE; }
-    @Override public Icon           getIcon()            { return null; }
+    @Override public Component     getComponent()     { return this; }
+    @Override public CytoPanelName getCytoPanelName() { return CytoPanelName.EAST; }
+    @Override public String        getTitle()         { return PANEL_TITLE; }
+    @Override public Icon          getIcon()          { return null; }
+
+    // ── Controls strip ────────────────────────────────────────────────────────
+
+    /**
+     * Persistent strip always shown below the tabs:
+     *
+     *   ┌── Phosphorylation ──────────────────┐
+     *   │  (placeholder for future controls)   │
+     *   └─────────────────────────────────────┘
+     *   ┌── Filters ──────────────────────────┐
+     *   │  (placeholder for future controls)   │
+     *   └─────────────────────────────────────┘
+     *   [  Solve Network  ]
+     */
+    private JPanel buildControlsStrip() {
+        JPanel strip = new JPanel();
+        strip.setLayout(new BoxLayout(strip, BoxLayout.Y_AXIS));
+        strip.setBackground(BG_CONTROLS);
+        strip.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, BORDER_DIM),
+                new EmptyBorder(10, 10, 12, 10)));
+
+        // ── Phosphorylation box ───────────────────────────────────────────────
+        strip.add(makeSubPanel("Phosphorylation"));
+        strip.add(Box.createVerticalStrut(8));
+
+        // ── Filters box ───────────────────────────────────────────────────────
+        strip.add(makeSubPanel("Filters"));
+        strip.add(Box.createVerticalStrut(10));
+
+        // ── Solve Network button ──────────────────────────────────────────────
+        JButton btnSolve = new JButton("Solve Network");
+        btnSolve.setFont(new Font("SansSerif", Font.BOLD, 12));
+        btnSolve.setBackground(new Color(37, 99, 235));
+        btnSolve.setForeground(FG_WHITE);
+        btnSolve.setFocusPainted(false);
+        btnSolve.setOpaque(true);
+        btnSolve.setBorderPainted(false);
+        btnSolve.setBorder(new EmptyBorder(7, 18, 7, 18));
+        btnSolve.setAlignmentX(Component.LEFT_ALIGNMENT);
+        btnSolve.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+        btnSolve.addActionListener(e -> fireSolveTask());
+        strip.add(btnSolve);
+
+        return strip;
+    }
+
+    /**
+     * A titled, bordered sub-panel for the controls strip.
+     * Content is an empty body for now — sliders and buttons will be added later.
+     *
+     *   ┌── Title ─────────────────────┐
+     *   │                              │
+     *   └──────────────────────────────┘
+     */
+    private JPanel makeSubPanel(String title) {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBackground(BG_SUBPANEL);
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+
+        // Titled border with muted colour to match the dark theme
+        TitledBorder tb = BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(BORDER_DIM, 1),
+                title,
+                TitledBorder.LEFT,
+                TitledBorder.TOP,
+                new Font("SansSerif", Font.BOLD, 10),
+                FG_MUTED);
+        panel.setBorder(BorderFactory.createCompoundBorder(tb, new EmptyBorder(4, 6, 6, 6)));
+
+        // Placeholder label — will be removed when real controls are added
+        JLabel placeholder = new JLabel("(controls will appear here)");
+        placeholder.setForeground(new Color(80, 100, 140));
+        placeholder.setFont(new Font("SansSerif", Font.ITALIC, 9));
+        placeholder.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(placeholder);
+
+        return panel;
+    }
+
+    /**
+     * "Add Interactor" button — appears inside the Node Details concentrations card,
+     * below the HSP90 data.  Launches the AddNodeTask Tunable dialog.
+     */
+    private JPanel makeAddInteractorButton() {
+        JButton btn = new JButton("+ Add Interactor");
+        btn.setFont(new Font("SansSerif", Font.BOLD, 11));
+        btn.setBackground(new Color(6, 55, 45));    // deep teal background
+        btn.setForeground(ACCENT_ADD);
+        btn.setFocusPainted(false);
+        btn.setOpaque(true);
+        btn.setBorderPainted(true);
+        btn.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(ACCENT_ADD, 1),
+                new EmptyBorder(5, 12, 5, 12)));
+        btn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        btn.addActionListener(e -> fireAddInteractorTask());
+
+        JPanel wrapper = new JPanel();
+        wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.Y_AXIS));
+        wrapper.setBackground(BG_CARD);
+        wrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
+        wrapper.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        wrapper.add(btn);
+        return wrapper;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void fireAddInteractorTask() {
+        if (currentNode == null) return;
+        try {
+            TaskManager tm = registrar.getService(TaskManager.class);
+            tm.execute(new AddNodeTaskFactory(registrar).createTaskIterator());
+        } catch (Exception ex) {
+            System.err.println("[ProteostasisApp] Could not fire AddNode task: " + ex.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void fireSolveTask() {
+        try {
+            TaskManager tm = registrar.getService(TaskManager.class);
+            tm.execute(new SolveNetworkTaskFactory(registrar).createTaskIterator());
+        } catch (Exception ex) {
+            System.err.println("[ProteostasisApp] Could not fire Solve task: " + ex.getMessage());
+        }
+    }
+
+    // ── Field wiring ──────────────────────────────────────────────────────────
+
+    private void wireTotalNmField() {
+        Runnable commit = () -> {
+            if (currentNetwork == null || currentNode == null) return;
+            try {
+                String txt = fldTotalNm.getText().trim()
+                        .replace(" nM", "").replace(" µM", "").replace(" uM", "");
+                double val = Double.parseDouble(txt);
+                if (fldTotalNm.getText().contains("µ") || fldTotalNm.getText().contains("uM"))
+                    val *= 1000.0;
+                Utils.setDbl(currentNetwork.getRow(currentNode), Columns.COL_TOTAL_NM, val);
+                fldTotalNm.setText(formatNm(val));
+            } catch (NumberFormatException ignored) {
+                Double v = Utils.getDbl(currentNetwork.getRow(currentNode), Columns.COL_TOTAL_NM);
+                fldTotalNm.setText(formatNm(v));
+            }
+        };
+        fldTotalNm.addActionListener(e -> commit.run());
+        fldTotalNm.addFocusListener(new FocusAdapter() {
+            @Override public void focusLost(FocusEvent e) { commit.run(); }
+        });
+    }
+
+    private void wireKdNmuField() {
+        Runnable commit = () -> {
+            if (currentNetwork == null || currentEdge == null) return;
+            try {
+                String txt = fldKduNm.getText().trim()
+                        .replace(" nM", "").replace(" µM", "").replace(" uM", "");
+                double val = Double.parseDouble(txt);
+                if (fldKduNm.getText().contains("µ") || fldKduNm.getText().contains("uM"))
+                    val *= 1000.0;
+                Utils.setDbl(currentNetwork.getRow(currentEdge), Columns.COL_KD_U_NM, val);
+                currentNetwork.getRow(currentEdge).set(Utils.mkCol(Columns.COL_HAS_KD), true);
+                fldKduNm.setText(formatNm(val));
+            } catch (NumberFormatException ignored) {
+                Double v = Utils.getDbl(currentNetwork.getRow(currentEdge), Columns.COL_KD_U_NM);
+                fldKduNm.setText(v != null ? String.format("%.4g", v) : "—");
+            }
+        };
+        fldKduNm.addActionListener(e -> commit.run());
+        fldKduNm.addFocusListener(new FocusAdapter() {
+            @Override public void focusLost(FocusEvent e) { commit.run(); }
+        });
+    }
+
+    private void wireKdNmpField() {
+        Runnable commit = () -> {
+            if (currentNetwork == null || currentEdge == null) return;
+            try {
+                String txt = fldKdpNm.getText().trim()
+                        .replace(" nM", "").replace(" µM", "").replace(" uM", "");
+                double val = Double.parseDouble(txt);
+                if (fldKdpNm.getText().contains("µ") || fldKdpNm.getText().contains("uM"))
+                    val *= 1000.0;
+                Utils.setDbl(currentNetwork.getRow(currentEdge), Columns.COL_KD_P_NM, val);
+                currentNetwork.getRow(currentEdge).set(Utils.mkCol(Columns.COL_HAS_KD), true);
+                fldKdpNm.setText(formatNm(val));
+            } catch (NumberFormatException ignored) {
+                Double v = Utils.getDbl(currentNetwork.getRow(currentEdge), Columns.COL_KD_P_NM);
+                fldKdpNm.setText(v != null ? String.format("%.4g", v) : "—");
+            }
+        };
+        fldKdpNm.addActionListener(e -> commit.run());
+        fldKdpNm.addFocusListener(new FocusAdapter() {
+            @Override public void focusLost(FocusEvent e) { commit.run(); }
+        });
+    }
 
     // ── UI helpers ────────────────────────────────────────────────────────────
 
-    /** Dark card container with a subtle border. */
+    private JScrollPane scrollWrap(JPanel content) {
+        JScrollPane sp = new JScrollPane(content);
+        sp.setBorder(null);
+        sp.setBackground(BG_DARK);
+        sp.getViewport().setBackground(BG_DARK);
+        return sp;
+    }
+
     private JPanel makeCard() {
         JPanel card = new JPanel();
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
         card.setBackground(BG_CARD);
         card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(42, 74, 127), 1),
-                new EmptyBorder(12, 14, 12, 14)));
+                BorderFactory.createLineBorder(BORDER_DIM, 1),
+                new EmptyBorder(10, 12, 10, 12)));
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         return card;
     }
 
-    /**
-     * A stacked metric block:
-     *
-     *   ● LABEL NAME
-     *   123.45 nM
-     *
-     * The label is small and muted; the value is large, bold and coloured.
-     */
-    private JPanel makeMetricBlock(String labelText, JComponent valueLabel, Color accentColor) {
+    private JLabel makeLabel(String text, Color color, int size, int style) {
+        JLabel lbl = new JLabel(text);
+        lbl.setForeground(color);
+        lbl.setFont(new Font("SansSerif", style, size));
+        lbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return lbl;
+    }
+
+    private JLabel makeBigLabel(Color color) {
+        JLabel lbl = new JLabel("—");
+        lbl.setForeground(color);
+        lbl.setFont(new Font("Monospaced", Font.BOLD, 15));
+        lbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return lbl;
+    }
+
+    private JPanel makeMetricBlock(String labelText, JLabel valueLbl, Color accent) {
         JPanel block = new JPanel();
         block.setLayout(new BoxLayout(block, BoxLayout.Y_AXIS));
         block.setBackground(BG_CARD);
         block.setAlignmentX(Component.LEFT_ALIGNMENT);
         block.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
 
-        // Top: dot + label
-        JPanel topRow = new JPanel(new BorderLayout(4, 0));
-        topRow.setBackground(BG_CARD);
-        topRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        topRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 16));
+        JPanel top = new JPanel(new BorderLayout(4, 0));
+        top.setBackground(BG_CARD);
+        top.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.setMaximumSize(new Dimension(Integer.MAX_VALUE, 14));
 
         JLabel dot = new JLabel("●");
-        dot.setForeground(accentColor);
+        dot.setForeground(accent);
         dot.setFont(new Font("SansSerif", Font.PLAIN, 8));
 
         JLabel lbl = new JLabel("  " + labelText.toUpperCase());
         lbl.setForeground(FG_MUTED);
-        lbl.setFont(new Font("SansSerif", Font.PLAIN, 10));
+        lbl.setFont(new Font("SansSerif", Font.PLAIN, 9));
 
-        topRow.add(dot, BorderLayout.WEST);
-        topRow.add(lbl, BorderLayout.CENTER);
+        top.add(dot, BorderLayout.WEST);
+        top.add(lbl, BorderLayout.CENTER);
 
-        // Bottom: the big value
-        valueLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        block.add(topRow);
+        valueLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+        block.add(top);
         block.add(Box.createVerticalStrut(3));
-        block.add(valueLabel);
+        block.add(valueLbl);
         return block;
     }
 
-    /** Returns a pre-styled large value label, ready to receive text. */
-    private JLabel makeBigValueLabel(Color color) {
-        JLabel lbl = new JLabel("—");
-        lbl.setForeground(color);
-        lbl.setFont(new Font("Monospaced", Font.BOLD, 16));
-        lbl.setAlignmentX(Component.LEFT_ALIGNMENT);
-        return lbl;
+    private JPanel makeEditRow(String labelText, JTextField field, Color accent) {
+        JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.setBackground(BG_CARD);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+
+        JPanel left = new JPanel(new BorderLayout(4, 0));
+        left.setBackground(BG_CARD);
+
+        JLabel dot = new JLabel("●");
+        dot.setForeground(accent);
+        dot.setFont(new Font("SansSerif", Font.PLAIN, 8));
+
+        JLabel lbl = new JLabel("  " + labelText.toUpperCase());
+        lbl.setForeground(FG_MUTED);
+        lbl.setFont(new Font("SansSerif", Font.PLAIN, 9));
+
+        left.add(dot, BorderLayout.WEST);
+        left.add(lbl, BorderLayout.CENTER);
+
+        row.add(left, BorderLayout.WEST);
+        row.add(field, BorderLayout.CENTER);
+        return row;
     }
 
-    /** Returns a pre-styled large value text field, ready to receive text. */
-    private JTextField makeEditableBigValueLabel(Color color, Class<? extends CyIdentifiable> clzz, String column) {
-        JTextField tf = new JTextField("—");
-        tf.setForeground(color);
-        tf.setFont(new Font("Monospaced", Font.BOLD, 16));
-        tf.setAlignmentX(Component.LEFT_ALIGNMENT);
-        tf.addActionListener(e -> {
-            String txt = tf.getText();
-            String[] parts = txt.split(" "); // To remove units
-            Double value = Double.parseDouble(parts[0]);
-            if (parts.length >=2 && !parts[1].equals("nM")) {
-                // Assume uM
-                value *= 1000;
-            }
-            if (clzz.equals(CyNode.class)) {
-                network.getRow(node).set(Utils.mkCol(column), value);
-            } else {
-            }
-        });
-        return tf;
+    private JTextField makeEditField(Color accent) {
+        JTextField field = new JTextField("—", 9);
+        field.setFont(new Font("Monospaced", Font.BOLD, 13));
+        field.setForeground(accent);
+        field.setBackground(new Color(20, 35, 70));
+        field.setCaretColor(ACCENT_EDIT);
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_DIM, 1),
+                new EmptyBorder(2, 5, 2, 5)));
+        field.setHorizontalAlignment(JTextField.RIGHT);
+        return field;
     }
 
-    /** A thin horizontal rule used between metric blocks. */
+    private JLabel makeEditHint(String text) {
+        JLabel hint = new JLabel(text);
+        hint.setForeground(new Color(100, 120, 160));
+        hint.setFont(new Font("SansSerif", Font.ITALIC, 9));
+        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        hint.setBorder(new EmptyBorder(0, 14, 0, 0));
+        return hint;
+    }
+
     private JPanel makeSeparator() {
         JPanel sep = new JPanel();
-        sep.setBackground(new Color(42, 74, 127));
+        sep.setBackground(BORDER_DIM);
         sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
         sep.setAlignmentX(Component.LEFT_ALIGNMENT);
         return sep;
     }
 
-    /** Format a concentration value: µM above 1000 nM, else nM to 2 d.p. */
     private String formatNm(Double value) {
         if (value == null) return "—";
-        if (value >= 1000.0)
-            return String.format("%.2f \u00b5M", value / 1000.0);
+        if (value >= 1000.0) return String.format("%.2f \u00b5M", value / 1000.0);
         return String.format("%.2f nM", value);
     }
 }

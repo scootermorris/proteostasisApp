@@ -1,15 +1,12 @@
 /* vim: set ts=4 sw=4 et: */
 package edu.ucsf.rbvi.proteostasisApp.view;
 
-import java.util.Collection;
 import java.util.List;
-import java.util.Properties;
 
 import org.cytoscape.application.CyApplicationManager;
 import org.cytoscape.application.events.SetCurrentNetworkEvent;
 import org.cytoscape.application.events.SetCurrentNetworkListener;
-import org.cytoscape.application.swing.CytoPanelComponent;
-import org.cytoscape.application.swing.CytoPanelState;
+import org.cytoscape.model.CyEdge;
 import org.cytoscape.model.CyNetwork;
 import org.cytoscape.model.CyNode;
 import org.cytoscape.model.events.RowsSetEvent;
@@ -17,19 +14,18 @@ import org.cytoscape.model.events.RowsSetListener;
 import org.cytoscape.service.util.CyServiceRegistrar;
 
 /**
- * Listens for node selection changes in the active Cytoscape network and
- * updates the {@link ProteostasisResultsPanel} accordingly.
+ * Listens for both node and edge selection changes in the active network
+ * and routes them to the appropriate tab in {@link ProteostasisResultsPanel}.
  *
- * It implements two Cytoscape event listener interfaces:
- *   - RowsSetListener  — fires when any CyTable rows are set (including
- *                        the "selected" boolean column on nodes).
- *   - SetCurrentNetworkListener — fires when the user switches networks,
- *                        so we can reset the panel.
+ * Registered for:
+ *   - RowsSetEvent              — fires when any table row value changes
+ *                                 (including the CyNetwork.SELECTED column)
+ *   - SetCurrentNetworkEvent    — fires when the user switches networks
  */
 public class NodeSelectionListener implements RowsSetListener, SetCurrentNetworkListener {
 
-    private final CyServiceRegistrar         registrar;
-    private final ProteostasisResultsPanel    panel;
+    private final CyServiceRegistrar      registrar;
+    private final ProteostasisResultsPanel panel;
 
     public NodeSelectionListener(CyServiceRegistrar registrar,
                                  ProteostasisResultsPanel panel) {
@@ -41,24 +37,45 @@ public class NodeSelectionListener implements RowsSetListener, SetCurrentNetwork
 
     @Override
     public void handleEvent(RowsSetEvent event) {
-        // Only react to changes in the "selected" column
-        if (!event.containsColumn(CyNetwork.SELECTED) || !panel.enabled()) return;
+        if (!event.containsColumn(CyNetwork.SELECTED)) return;
 
         CyApplicationManager appMgr  = registrar.getService(CyApplicationManager.class);
         CyNetwork            network = appMgr.getCurrentNetwork();
         if (network == null) return;
 
-        // Check that this event is for the current network's node table
-        if (!event.getSource().equals(network.getDefaultNodeTable())) return;
+        // ── Node selection ────────────────────────────────────────────────────
+        if (event.getSource().equals(network.getDefaultNodeTable())) {
+            List<CyNode> selected = network.getNodeList();
+            selected.removeIf(n -> !Boolean.TRUE.equals(
+                    network.getRow(n).get(CyNetwork.SELECTED, Boolean.class)));
 
-        // Collect all selected nodes
-        List<CyNode> selected = network.getNodeList();
-        selected.removeIf(n -> !Boolean.TRUE.equals(network.getRow(n).get(CyNetwork.SELECTED, Boolean.class)));
+            if (selected.size() == 1) {
+                panel.showNode(network, selected.get(0));
+            } else if (selected.isEmpty()) {
+                // Only clear if edges are also deselected
+                List<CyEdge> selEdges = network.getEdgeList();
+                selEdges.removeIf(e -> !Boolean.TRUE.equals(
+                        network.getRow(e).get(CyNetwork.SELECTED, Boolean.class)));
+                if (selEdges.isEmpty()) panel.clearSelection();
+            }
+            return;
+        }
 
-        if (selected.size() == 1) {
-            panel.showNode(network, selected.get(0));
-        } else {
-            panel.clearSelection();
+        // ── Edge selection ────────────────────────────────────────────────────
+        if (event.getSource().equals(network.getDefaultEdgeTable())) {
+            List<CyEdge> selected = network.getEdgeList();
+            selected.removeIf(e -> !Boolean.TRUE.equals(
+                    network.getRow(e).get(CyNetwork.SELECTED, Boolean.class)));
+
+            if (selected.size() == 1) {
+                panel.showEdge(network, selected.get(0));
+            } else if (selected.isEmpty()) {
+                // Only clear if nodes are also deselected
+                List<CyNode> selNodes = network.getNodeList();
+                selNodes.removeIf(n -> !Boolean.TRUE.equals(
+                        network.getRow(n).get(CyNetwork.SELECTED, Boolean.class)));
+                if (selNodes.isEmpty()) panel.clearSelection();
+            }
         }
     }
 
@@ -66,28 +83,6 @@ public class NodeSelectionListener implements RowsSetListener, SetCurrentNetwork
 
     @Override
     public void handleEvent(SetCurrentNetworkEvent event) {
-		CyNetwork network = event.getNetwork();
-        checkNetwork(network);
-    }
-
-    public void checkNetwork(CyNetwork network) {
-        if (network == null) {
-            CyApplicationManager appMgr  = registrar.getService(CyApplicationManager.class);
-            network = appMgr.getCurrentNetwork();
-            if (network == null) return;
-        }
-
         panel.clearSelection();
-
-		// See if this is a proteostasis network
-		if (network.getDefaultNetworkTable().getRow(network.getSUID()).get(CyNetwork.NAME, String.class) != "Proteostasis Core Network") {
-			// No, disable the results panel
-            panel.active(false);
-            registrar.unregisterService(panel, CytoPanelComponent.class);
-		} else {
-			// Yes, enable the results panel
-            panel.active(true);
-            registrar.registerService(panel, CytoPanelComponent.class, new Properties());
-		}
     }
 }

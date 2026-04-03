@@ -19,116 +19,130 @@ import org.cytoscape.model.CyTable;
 
 import edu.ucsf.rbvi.proteostasisApp.utils.Utils;
 
+/**
+ * Applies solver response data (free concentrations, complex concentrations,
+ * fraction bound) to the current network's node and edge tables.
+ *
+ * All column writes go through {@link Utils} so they land in the
+ * {@code prtsts::} namespace.
+ */
 public class DataManager {
 
-    static String HSP70_PIE = "piechart: attributelist=\"prtsts::bound\" colorlist=\"#e6c75f,#155efd\" arcstart=90";
-    static String HSP90_PIE = "piechart: attributelist=\"prtsts::bound\" colorlist=\"#e6c75f,#fd3636\" arcstart=90";
-    static String CCTPR_PIE = "piechart: attributelist=\"prtsts::bound\" colorlist=\"#e6c75f,#155efd,#fd3636\" arcstart=90";
+    static String HSP70_PIE = "piechart: attributelist=\"" + Utils.mkCol(Columns.COL_BOUND)
+            + "\" colorlist=\"grey,blue\" arcstart=90";
+    static String HSP90_PIE = "piechart: attributelist=\"" + Utils.mkCol(Columns.COL_BOUND)
+            + "\" colorlist=\"grey,red\" arcstart=90";
+    static String CCTPR_PIE = "piechart: attributelist=\"" + Utils.mkCol(Columns.COL_BOUND)
+            + "\" colorlist=\"grey,blue,red\" arcstart=90";
 
-    public static void addData(CyNetwork network, Map<String, CyNode> nodeNameMap, String jsonDataText, boolean update) {
-        // 1. Get the data
+    public static void addData(CyNetwork network, Map<String, CyNode> nodeNameMap,
+                        String jsonDataText, boolean update) {
+
         JsonObject dataRoot                   = JsonParser.parseString(jsonDataText).getAsJsonObject();
         Map<String, JsonElement> freeMap      = dataRoot.getAsJsonObject("freeById").asMap();
         Map<String, JsonElement> complexMap   = dataRoot.getAsJsonObject("complexByEdgeId").asMap();
         Map<String, JsonElement> fracBoundMap = dataRoot.getAsJsonObject("fracBoundByEdgeId").asMap();
 
-        // 2. Process the complexMap to index by source then target
+        // Index complexMap by source → target → bound
         Map<String, Map<String, Double>> edgeMap = new HashMap<>();
-        for (String edge: complexMap.keySet()) {
+        for (String edge : complexMap.keySet()) {
             Double bound = complexMap.get(edge).getAsDouble();
-            String[] st = edge.split("->");
-            if (!edgeMap.containsKey(st[0]))
-                edgeMap.put(st[0], new LinkedHashMap<String, Double>());
-            edgeMap.get(st[0]).put(st[1], bound);
+            String[] st  = edge.split("->");
+            edgeMap.computeIfAbsent(st[0], k -> new LinkedHashMap<>()).put(st[1], bound);
         }
 
-        // 3. Update the node data and create a map of all of the node names
-        for (String nodeName: nodeNameMap.keySet()) {
+        // ── 1. Update free concentrations and chaperone pie charts ────────────
+        for (String nodeName : nodeNameMap.keySet()) {
             CyRow row = network.getRow(nodeNameMap.get(nodeName));
+            if (!freeMap.containsKey(nodeName)) continue; // clusters have no free value
 
-            // Set the unbound (free) value (note that clusters don't have free values)
-            if (!freeMap.containsKey(nodeName))
-                continue;  // Skip over the clusters
             Double free = freeMap.get(nodeName).getAsDouble();
             Utils.setDbl(row, Columns.COL_FREE, free);
 
-            // OK, we need to watch out for our chaperone's
             if (isChaperone(row)) {
-                // Bound is total - free
-                List<Double> boundList = new ArrayList<>();
                 Double total = Utils.getDbl(row, Columns.COL_TOTAL_NM);
+                if (total == null) continue;
                 Double bound = total - free;
+                List<Double> boundList = new ArrayList<>();
                 boundList.add(free);
                 boundList.add(bound);
                 Utils.setList(row, Columns.COL_BOUND, boundList);
+                String tooltip = makeNodeTooltip(row, nodeName, boundList);
+                Utils.setStr(row, Columns.COL_TOOLTIP, tooltip);
                 if (!update) {
-                    if (nodeName.equals("HSP70"))
-                        Utils.setStr(row, Columns.COL_PIECHART, HSP70_PIE);
-                    else if (nodeName.equals("HSP90"))
-                        Utils.setStr(row, Columns.COL_PIECHART, HSP90_PIE);
+                    if ("HSP70".equals(nodeName)) Utils.setStr(row, Columns.COL_PIECHART, HSP70_PIE);
+                    else if ("HSP90".equals(nodeName)) Utils.setStr(row, Columns.COL_PIECHART, HSP90_PIE);
                 }
             }
         }
 
-        // 4. Update the edge data (and node bound list).
-        for (String nodeName: nodeNameMap.keySet()) {
+        // ── 2. Update edge bound / frac_bound, and cc_tpr node pie charts ─────
+        for (String nodeName : nodeNameMap.keySet()) {
             CyNode source = nodeNameMap.get(nodeName);
-            CyRow row = network.getRow(source);
+            CyRow  row    = network.getRow(source);
 
-            // Set the bound values
             Map<String, Double> neMap = edgeMap.get(nodeName);
-            if (neMap == null)
-                continue;
+            if (neMap == null) continue;
 
-            // This is the boundList we'll use to create the pie chart
+            if (!freeMap.containsKey(nodeName)) continue;
             List<Double> boundList = new ArrayList<>();
             boundList.add(freeMap.get(nodeName).getAsDouble());
-            for (String partner: neMap.keySet()) {
-                Double bound = neMap.get(partner);
+
+            for (String partner : neMap.keySet()) {
+                Double bound  = neMap.get(partner);
                 boundList.add(bound);
+
                 CyNode target = nodeNameMap.get(partner);
-                CyEdge edge = network.getConnectingEdgeList(source, target, CyEdge.Type.ANY).get(0);
-                CyRow eRow = network.getRow(edge);
+                if (target == null) continue;
+                List<CyEdge> edges = network.getConnectingEdgeList(source, target, CyEdge.Type.ANY);
+                if (edges.isEmpty()) continue;
+                CyRow eRow = network.getRow(edges.get(0));
                 Utils.setDbl(eRow, Columns.COL_BOUND, bound);
 
-                String key = nodeName+"->"+partner; // this avoids having to create yet another map
-                Double fracBound = fracBoundMap.get(key).getAsDouble();
-                Utils.setDbl(eRow, Columns.COL_FRAC_BOUND, fracBound);
+                String key = nodeName + "->" + partner;
+                JsonElement fracEl = fracBoundMap.get(key);
+                if (fracEl != null) Utils.setDbl(eRow, Columns.COL_FRAC_BOUND, fracEl.getAsDouble());
+                String tt = makeEdgeTooltip(eRow, key);
+                Utils.setStr(eRow, Columns.COL_TOOLTIP, tt);
             }
 
             Utils.setList(row, Columns.COL_BOUND, boundList);
-            String tooltip = makeTooltip(row, nodeName, boundList);
-            Utils.setStr(row, Columns.COL_TOOLTIP, tooltip);
-            if (!update)
-                Utils.setStr(row, Columns.COL_PIECHART, CCTPR_PIE);
+            if (!update) Utils.setStr(row, Columns.COL_PIECHART, CCTPR_PIE);
         }
     }
 
-    static String makeTooltip(CyRow row, String nodeName, List<Double>boundList) {
+    public static String makeNodeTooltip(CyRow row, String nodeName, List<Double>boundList) {
         String ttString = "<html><h1>"+nodeName+"</h1><dl>";
         Double totalNm = Utils.getDbl(row, Columns.COL_TOTAL_NM);
+        Double free = Utils.getDbl(row, Columns.COL_FREE);
         ttString = addRow(ttString, "total (nM)", totalNm);
-        ttString = addRow(ttString, "free (nM)", boundList.get(0));
-        ttString = addRow(ttString, "bound to HSP70", boundList.get(1));
-        ttString = addRow(ttString, "bound to HSP90", boundList.get(2));
+        ttString = addRow(ttString, "free (nM)", free);
+        if (boundList != null && boundList.size() > 2) {
+            ttString = addRow(ttString, "bound to HSP70", boundList.get(1));
+            ttString = addRow(ttString, "bound to HSP90", boundList.get(2));
+        }
+        ttString += "</dl></html>";
+        return ttString;
+    }
+
+    public static String makeEdgeTooltip(CyRow row, String edgeName) {
+        String ttString = "<html><h1>"+edgeName+"</h1><dl>";
+        ttString = addRow(ttString, "kD (unphosphorylated)", Utils.getDbl(row, Columns.COL_KD_U_NM));
+        ttString = addRow(ttString, "kD (phosphorylated)", Utils.getDbl(row, Columns.COL_KD_P_NM));
+        ttString = addRow(ttString, "bound", Utils.getDbl(row, Columns.COL_BOUND));
+        ttString = addRow(ttString, "fraction bound", Utils.getDbl(row, Columns.COL_FRAC_BOUND));
         ttString += "</dl></html>";
         return ttString;
     }
 
     static String addRow(String ttString, String term, Double data) {
         ttString += "<dt>"+term+"</dt>";
-        ttString += "<dd><b>"+data.toString()+"</b></dd>";
+        ttString += "<dd><b>"+String.format("%.2f",data)+"</b></dd>";
         return ttString;
     }
 
     static boolean isChaperone(CyRow row) {
         String nodeClass = Utils.getStr(row, Columns.COL_NODE_CLASS);
-        if (nodeClass == null) return false;
-
-        if (nodeClass.equals("chaperone"))
-            return true;
-        return false;
+        return "chaperone".equals(nodeClass);
     }
-
 }
-

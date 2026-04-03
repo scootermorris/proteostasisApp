@@ -139,7 +139,8 @@ public class LoadNetworkTask extends AbstractTask {
         // 4. Ensure edge columns exist
         CyTable edgeTable = network.getDefaultEdgeTable();
         Utils.ensureColumn(edgeTable, Columns.COL_EDGE_CLASS, String.class);
-        Utils.ensureColumn(edgeTable, Columns.COL_KD_NM,      Double.class);
+        Utils.ensureColumn(edgeTable, Columns.COL_KD_U_NM,    Double.class);
+        Utils.ensureColumn(edgeTable, Columns.COL_KD_P_NM,    Double.class);
         Utils.ensureColumn(edgeTable, Columns.COL_HAS_KD,     Boolean.class);
         Utils.ensureColumn(edgeTable, Columns.COL_BOUND,      Double.class);
         Utils.ensureColumn(edgeTable, Columns.COL_FRAC_BOUND, Double.class);
@@ -208,7 +209,8 @@ public class LoadNetworkTask extends AbstractTask {
             CyRow  row  = network.getRow(edge);
             row.set(CyNetwork.NAME, sourceId + " \u2192 " + targetId);
             Utils.setStr(row, data, Columns.COL_EDGE_CLASS);
-            Utils.setDbl(row, data, Columns.COL_KD_NM);
+            Utils.setDbl(row, data, Columns.COL_KD_U_NM);
+            Utils.setDbl(row, data, Columns.COL_KD_P_NM);
             Utils.setBool(row, data, Columns.COL_HAS_KD);
             Utils.setStr(row, Columns.COL_SOURCE, sourceId);
             Utils.setStr(row, Columns.COL_TARGET, targetId);
