@@ -29,11 +29,11 @@ import edu.ucsf.rbvi.proteostasisApp.utils.Utils;
 public class DataManager {
 
     static String HSP70_PIE = "piechart: attributelist=\"" + Utils.mkCol(Columns.COL_BOUND)
-            + "\" colorlist=\"grey,blue\" arcstart=90";
+            + "\" colorlist=\"#e6c75f,#155efd\" arcstart=90";
     static String HSP90_PIE = "piechart: attributelist=\"" + Utils.mkCol(Columns.COL_BOUND)
-            + "\" colorlist=\"grey,red\" arcstart=90";
+            + "\" colorlist=\"#e6c75f,#fd3636\" arcstart=90";
     static String CCTPR_PIE = "piechart: attributelist=\"" + Utils.mkCol(Columns.COL_BOUND)
-            + "\" colorlist=\"grey,blue,red\" arcstart=90";
+            + "\" colorlist=\"#e6c75f,#155efd,#fd3636\" arcstart=90";
 
     public static void addData(CyNetwork network, Map<String, CyNode> nodeNameMap,
                         String jsonDataText, boolean update) {
@@ -117,9 +117,11 @@ public class DataManager {
         Double free = Utils.getDbl(row, Columns.COL_FREE);
         ttString = addRow(ttString, "total (nM)", totalNm);
         ttString = addRow(ttString, "free (nM)", free);
-        if (boundList != null && boundList.size() > 2) {
+        if (boundList != null && boundList.size() == 3) {
             ttString = addRow(ttString, "bound to HSP70", boundList.get(1));
             ttString = addRow(ttString, "bound to HSP90", boundList.get(2));
+        } else if (boundList != null && boundList.size() == 2) {
+            ttString = addRow(ttString, "bound", boundList.get(1));
         }
         ttString += "</dl></html>";
         return ttString;
