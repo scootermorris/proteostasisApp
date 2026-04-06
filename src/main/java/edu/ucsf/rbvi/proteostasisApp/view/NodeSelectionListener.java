@@ -2,16 +2,20 @@
 package edu.ucsf.rbvi.proteostasisApp.view;
 
 import java.util.List;
+import java.util.Properties;
 
 import org.cytoscape.application.CyApplicationManager;
 import org.cytoscape.application.events.SetCurrentNetworkEvent;
 import org.cytoscape.application.events.SetCurrentNetworkListener;
+import org.cytoscape.application.swing.CytoPanelComponent;
 import org.cytoscape.model.CyEdge;
 import org.cytoscape.model.CyNetwork;
 import org.cytoscape.model.CyNode;
 import org.cytoscape.model.events.RowsSetEvent;
 import org.cytoscape.model.events.RowsSetListener;
 import org.cytoscape.service.util.CyServiceRegistrar;
+
+import edu.ucsf.rbvi.proteostasisApp.utils.Utils;
 
 /**
  * Listens for both node and edge selection changes in the active network
@@ -31,6 +35,8 @@ public class NodeSelectionListener implements RowsSetListener, SetCurrentNetwork
                                  ProteostasisResultsPanel panel) {
         this.registrar = registrar;
         this.panel     = panel;
+
+        registerCytoPanel(registrar.getService(CyApplicationManager.class).getCurrentNetwork());
     }
 
     // ── RowsSetListener ───────────────────────────────────────────────────────
@@ -84,5 +90,14 @@ public class NodeSelectionListener implements RowsSetListener, SetCurrentNetwork
     @Override
     public void handleEvent(SetCurrentNetworkEvent event) {
         panel.clearSelection();
+        registerCytoPanel(event.getNetwork());
+    }
+
+    public void registerCytoPanel(CyNetwork network) {
+        if (Utils.isProteostasisNetwork(network)) {
+            registrar.registerService(panel, CytoPanelComponent.class, new Properties());
+        } else {
+            registrar.unregisterService(panel, CytoPanelComponent.class);
+        }
     }
 }

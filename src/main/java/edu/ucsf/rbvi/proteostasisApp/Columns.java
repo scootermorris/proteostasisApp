@@ -29,6 +29,10 @@ public class Columns {
 
     // Column names — edges
     public static final String COL_EDGE_CLASS    = "edge_class";
+
+    // NEW: solver-compatible single-KD field
+    public static final String COL_KD_NM         = "kd_nM";
+
     public static final String COL_KD_U_NM       = "kd_u_nM";
     public static final String COL_KD_P_NM       = "kd_p_nM";
     public static final String COL_HAS_KD        = "has_kd";

@@ -1,6 +1,7 @@
 /* vim: set ts=4 sw=4 et: */
 package edu.ucsf.rbvi.proteostasisApp.utils;
 
+import org.cytoscape.model.CyNetwork;
 import org.cytoscape.model.CyRow;
 import org.cytoscape.model.CyTable;
 
@@ -37,15 +38,21 @@ public class Utils {
         }
     }
 
+    public static boolean isProteostasisNetwork(CyNetwork network) {
+        if (network == null) return false;
+        if (network.getRow(network).get(CyNetwork.NAME, String.class).equals("Proteostasis Core Network"))
+            return true;
+        return false;
+    }
+
     public static <T> void ensureColumn(CyTable table, String name, Class<T> type) {
         ensureColumn(table, name, type, true);
     }
 
-
     public static <T> void ensureColumn(CyTable table, String name, Class<T> type, boolean includeNamespace) {
         if (includeNamespace) {
-            if (table.getColumn(NAMESPACE+name) == null)
-                table.createColumn(NAMESPACE+name, type, false);
+            if (table.getColumn(NAMESPACE + name) == null)
+                table.createColumn(NAMESPACE + name, type, false);
         } else {
             if (table.getColumn(name) == null)
                 table.createColumn(name, type, false);
@@ -58,8 +65,8 @@ public class Utils {
 
     public static <T> void ensureListColumn(CyTable table, String name, Class<T> type, boolean includeNamespace) {
         if (includeNamespace) {
-            if (table.getColumn(NAMESPACE+name) == null)
-                table.createListColumn(NAMESPACE+name, type, false);
+            if (table.getColumn(NAMESPACE + name) == null)
+                table.createListColumn(NAMESPACE + name, type, false);
         } else {
             if (table.getColumn(name) == null)
                 table.createListColumn(name, type, false);
@@ -68,42 +75,45 @@ public class Utils {
 
     public static void setStr(CyRow row, JsonObject data, String key) {
         if (data.has(key) && !data.get(key).isJsonNull())
-            row.set(NAMESPACE+key, data.get(key).getAsString());
+            row.set(NAMESPACE + key, data.get(key).getAsString());
     }
 
     public static void setStr(CyRow row, String col, String data) {
-        row.set(NAMESPACE+col, data);
+        row.set(NAMESPACE + col, data);
     }
 
     public static String getStr(CyRow row, String col) {
-        return row.get(NAMESPACE+col, String.class);
+        return row.get(NAMESPACE + col, String.class);
     }
 
     public static void setDbl(CyRow row, JsonObject data, String key) {
         if (data.has(key) && !data.get(key).isJsonNull())
-            row.set(NAMESPACE+key, data.get(key).getAsDouble());
+            row.set(NAMESPACE + key, data.get(key).getAsDouble());
     }
 
     public static void setDbl(CyRow row, String col, Double data) {
-        row.set(NAMESPACE+col, data);
+        row.set(NAMESPACE + col, data);
     }
 
     public static Double getDbl(CyRow row, String col) {
-        return row.get(NAMESPACE+col, Double.class);
+        return row.get(NAMESPACE + col, Double.class);
     }
 
     public static void setBool(CyRow row, JsonObject data, String key) {
         if (data.has(key) && !data.get(key).isJsonNull())
-            row.set(NAMESPACE+key, data.get(key).getAsBoolean());
+            row.set(NAMESPACE + key, data.get(key).getAsBoolean());
     }
 
     public static void setList(CyRow row, String col, List<?> data) {
-        row.set(NAMESPACE+col, data);
+        row.set(NAMESPACE + col, data);
+    }
+
+    // NEW: getter for namespaced list-valued columns
+    public static <T> List<T> getList(CyRow row, String col, Class<T> type) {
+        return row.getList(NAMESPACE + col, type);
     }
 
     public static String mkCol(String col) {
-        return NAMESPACE+col;
+        return NAMESPACE + col;
     }
-
 }
-

@@ -56,7 +56,6 @@ public class CyActivator extends AbstractCyActivator {
 
         // ── 4. Results panel ──────────────────────────────────────────────────
         ProteostasisResultsPanel panel = new ProteostasisResultsPanel(registrar);
-        registerService(ctx, panel, CytoPanelComponent.class, new Properties());
 
         // ── 5. Selection listeners ────────────────────────────────────────────
         NodeSelectionListener listener = new NodeSelectionListener(registrar, panel);
