@@ -8,7 +8,7 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
-import java.util.List; // NEW
+import java.util.List;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -18,12 +18,14 @@ import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSlider;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
+import javax.swing.event.ChangeEvent;
 
 import org.cytoscape.application.swing.CytoPanelComponent;
 import org.cytoscape.application.swing.CytoPanelName;
@@ -41,13 +43,37 @@ import edu.ucsf.rbvi.proteostasisApp.utils.Utils;
 
 /**
  * Cytoscape EAST Results Panel for the Proteostasis app.
+ *
+ * Layout (top to bottom):
+ *   ┌─────────────────────────────────────┐
+ *   │  Header: "Proteostasis Details"      │
+ *   ├─────────────────────────────────────┤
+ *   │  JTabbedPane                        │
+ *   │    Tab 1: Node Details              │
+ *   │      – total_nM (editable)          │
+ *   │      – free_nM, bound→HSP70/90      │
+ *   │      – [Add Interactor] button      │
+ *   │    Tab 2: Edge Details              │
+ *   │      – kd_u_nM, kd_p_nM (editable) │
+ *   │      – bound, frac_bound            │
+ *   ├─────────────────────────────────────┤
+ *   │  Persistent controls strip:         │
+ *   │    ┌── Phosphorylation ────────┐    │
+ *   │    │ HSP70 [====slider====] xx%│    │
+ *   │    │ HSP90 [====slider====] xx%│    │
+ *   │    └──────────────────────────┘    │
+ *   │    ┌── Filters ────────────────┐   │
+ *   │    │  (future content)          │   │
+ *   │    └──────────────────────────┘    │
+ *   │    [  Solve Network  ]              │
+ *   └─────────────────────────────────────┘
  */
 public class ProteostasisResultsPanel extends JPanel implements CytoPanelComponent {
 
     private static final long   serialVersionUID = 1L;
     private static final String PANEL_TITLE      = "Proteostasis";
 
-    // NEW: network-level phospho fraction columns
+    // Network-level phospho fraction columns (fraction 0–1 stored, displayed as 0–100%)
     private static final String COL_PCT_P_HSP70 = "pct_p_hsp70";
     private static final String COL_PCT_P_HSP90 = "pct_p_hsp90";
 
@@ -93,9 +119,16 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
     private final JLabel     valFracBound;
     private final JLabel     edgeNoSelMsg;
 
-    // NEW: phospho controls
-    private final JTextField fldPctPHsp70;
-    private final JTextField fldPctPHsp90;
+    // ── Phosphorylation sliders and readout labels ────────────────────────────
+    // Slider integer range 0–100 corresponds to 0–100 percent.
+    private final JSlider sldPhosphoHsp70;
+    private final JSlider sldPhosphoHsp90;
+    private final JLabel  lblPhosphoHsp70Val;  // live "xx%" readout next to slider
+    private final JLabel  lblPhosphoHsp90Val;
+
+    // Guard flag: prevents slider ChangeListener from writing to network
+    // while we are programmatically moving the slider during sync.
+    private boolean syncingSliders = false;
 
     // ── State ─────────────────────────────────────────────────────────────────
     private CyNetwork currentNetwork;
@@ -106,8 +139,9 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         this.registrar = registrar;
         setLayout(new BorderLayout());
         setBackground(BG_DARK);
-        setPreferredSize(new Dimension(290, 560));
+        setPreferredSize(new Dimension(290, 580));
 
+        // ── Header bar ────────────────────────────────────────────────────────
         JPanel header = new JPanel(new BorderLayout());
         header.setBackground(new Color(10, 18, 40));
         header.setBorder(new EmptyBorder(10, 14, 10, 14));
@@ -117,6 +151,7 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         header.add(title, BorderLayout.WEST);
         add(header, BorderLayout.NORTH);
 
+        // ── Tabbed pane ───────────────────────────────────────────────────────
         JTabbedPane tabs = new JTabbedPane();
         tabs.setBackground(BG_DARK);
         tabs.setForeground(FG_MUTED);
@@ -214,7 +249,7 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         fldKdpNm = makeEditField(ACCENT_KD);
         edgeDataPanel.add(makeEditRow("Kd unphosphorylated (nM)", fldKduNm, ACCENT_KD));
         edgeDataPanel.add(Box.createVerticalStrut(2));
-        edgeDataPanel.add(makeEditRow("Kd phosphorylated (nM)", fldKdpNm, ACCENT_KD));
+        edgeDataPanel.add(makeEditRow("Kd phosphorylated (nM)",   fldKdpNm, ACCENT_KD));
         edgeDataPanel.add(Box.createVerticalStrut(2));
         edgeDataPanel.add(makeEditHint("Edit and Solve to update"));
         edgeDataPanel.add(Box.createVerticalStrut(10));
@@ -247,17 +282,20 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
 
         add(tabs, BorderLayout.CENTER);
 
-        // NEW: initialize phospho fields before building control strip
-        fldPctPHsp70 = makeEditField(ACCENT_HSP70);
-        fldPctPHsp90 = makeEditField(ACCENT_HSP90);
+        // ── Build sliders before constructing the controls strip ──────────────
+        sldPhosphoHsp70  = makePhosphoSlider(ACCENT_HSP70);
+        sldPhosphoHsp90  = makePhosphoSlider(ACCENT_HSP90);
+        lblPhosphoHsp70Val = makeSliderValLabel();
+        lblPhosphoHsp90Val = makeSliderValLabel();
 
         add(buildControlsStrip(), BorderLayout.SOUTH);
 
+        // Wire all interactive fields
         wireTotalNmField();
         wireKdNmuField();
         wireKdNmpField();
-        wirePctPHsp70Field(); // NEW
-        wirePctPHsp90Field(); // NEW
+        wirePhosphoSlider(sldPhosphoHsp70, lblPhosphoHsp70Val, COL_PCT_P_HSP70);
+        wirePhosphoSlider(sldPhosphoHsp90, lblPhosphoHsp90Val, COL_PCT_P_HSP90);
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -268,20 +306,17 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
             this.currentNode    = node;
             this.currentEdge    = null;
 
-            syncPhosphoFieldsFromNetwork(network); // NEW
+            syncPhosphoSlidersFromNetwork(network);
 
-            CyRow row       = network.getRow(node);
+            CyRow  row       = network.getRow(node);
             String name      = row.get(CyNetwork.NAME, String.class);
             String nodeClass = Utils.getStr(row, Columns.COL_NODE_CLASS);
             Double total     = Utils.getDbl(row, Columns.COL_TOTAL_NM);
             Double free      = Utils.getDbl(row, Columns.COL_FREE);
 
-            double hsp70Bound = 0.0;
-            double hsp90Bound = 0.0;
-            boolean hasHsp70  = false;
-            boolean hasHsp90  = false;
+            double  hsp70Bound = 0.0, hsp90Bound = 0.0;
+            boolean hasHsp70   = false, hasHsp90   = false;
 
-            // CHANGED: prefer pool-resolved pie slices if present
             List<Double> boundList = Utils.getList(row, Columns.COL_BOUND, Double.class);
 
             if ("HSP70".equals(name) && boundList != null && boundList.size() >= 4) {
@@ -296,24 +331,17 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
                 hasHsp70 = true;
                 hasHsp90 = true;
             } else {
-                // fallback to visible edge values
                 for (CyEdge edge : network.getAdjacentEdgeList(node, CyEdge.Type.ANY)) {
                     CyNode other     = edge.getSource().equals(node) ? edge.getTarget() : edge.getSource();
                     String otherName = network.getRow(other).get(CyNetwork.NAME, String.class);
                     Double bound     = Utils.getDbl(network.getRow(edge), Columns.COL_BOUND);
                     if (bound == null) continue;
-
-                    if ("HSP70".equals(otherName)) {
-                        hsp70Bound += bound;
-                        hasHsp70 = true;
-                    } else if ("HSP90".equals(otherName)) {
-                        hsp90Bound += bound;
-                        hasHsp90 = true;
-                    }
+                    if ("HSP70".equals(otherName)) { hsp70Bound += bound; hasHsp70 = true; }
+                    else if ("HSP90".equals(otherName)) { hsp90Bound += bound; hasHsp90 = true; }
                 }
             }
 
-            lblNodeName.setText(name != null ? name : "—");
+            lblNodeName.setText(name      != null ? name      : "—");
             lblNodeClass.setText(nodeClass != null ? nodeClass : "");
             fldTotalNm.setText(formatNm(total));
             valFree.setText(formatNm(free));
@@ -323,8 +351,7 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
             nodeIdentCard.setVisible(true);
             nodeDataPanel.setVisible(true);
             nodeNoSelMsg.setVisible(false);
-            revalidate();
-            repaint();
+            revalidate(); repaint();
         });
     }
 
@@ -334,9 +361,9 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
             this.currentEdge    = edge;
             this.currentNode    = null;
 
-            syncPhosphoFieldsFromNetwork(network); // NEW
+            syncPhosphoSlidersFromNetwork(network);
 
-            CyRow row      = network.getRow(edge);
+            CyRow  row      = network.getRow(edge);
             String edgeName = row.get(CyNetwork.NAME, String.class);
             Double kdu      = Utils.getDbl(row, Columns.COL_KD_U_NM);
             Double kdp      = Utils.getDbl(row, Columns.COL_KD_P_NM);
@@ -352,8 +379,7 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
             edgeIdentCard.setVisible(true);
             edgeDataPanel.setVisible(true);
             edgeNoSelMsg.setVisible(false);
-            revalidate();
-            repaint();
+            revalidate(); repaint();
         });
     }
 
@@ -370,10 +396,11 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
             edgeDataPanel.setVisible(false);
             edgeNoSelMsg.setVisible(true);
 
-            revalidate();
-            repaint();
+            revalidate(); repaint();
         });
     }
+
+    // ── CytoPanelComponent ────────────────────────────────────────────────────
 
     @Override public Component     getComponent()     { return this; }
     @Override public CytoPanelName getCytoPanelName() { return CytoPanelName.EAST; }
@@ -390,7 +417,6 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
                 BorderFactory.createMatteBorder(1, 0, 0, 0, BORDER_DIM),
                 new EmptyBorder(10, 10, 12, 10)));
 
-        // CHANGED: now real phospho controls instead of placeholder-only panel
         strip.add(makePhosphorylationPanel());
         strip.add(Box.createVerticalStrut(8));
 
@@ -413,7 +439,14 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         return strip;
     }
 
-    // NEW
+    /**
+     * Phosphorylation panel — contains one slider row per chaperone.
+     *
+     *  ┌── Phosphorylation ───────────────────────────────┐
+     *  │  ● HSP70  [━━━━━━━━━━━━━━━━━━━━━━━━━]  42%      │
+     *  │  ● HSP90  [━━━━━━━━━━━━━]              18%      │
+     *  └─────────────────────────────────────────────────┘
+     */
     private JPanel makePhosphorylationPanel() {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -428,15 +461,80 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
                 TitledBorder.TOP,
                 new Font("SansSerif", Font.BOLD, 10),
                 FG_MUTED);
-        panel.setBorder(BorderFactory.createCompoundBorder(tb, new EmptyBorder(4, 6, 6, 6)));
+        panel.setBorder(BorderFactory.createCompoundBorder(tb, new EmptyBorder(4, 6, 8, 6)));
 
-        panel.add(makeEditRow("% HSP70 phosphorylated", fldPctPHsp70, ACCENT_HSP70));
-        panel.add(Box.createVerticalStrut(4));
-        panel.add(makeEditRow("% HSP90 phosphorylated", fldPctPHsp90, ACCENT_HSP90));
-        panel.add(Box.createVerticalStrut(4));
-        panel.add(makeEditHint("Enter 0–100; Solve to update"));
+        panel.add(makeSliderRow("HSP70", sldPhosphoHsp70, lblPhosphoHsp70Val, ACCENT_HSP70));
+        panel.add(Box.createVerticalStrut(6));
+        panel.add(makeSliderRow("HSP90", sldPhosphoHsp90, lblPhosphoHsp90Val, ACCENT_HSP90));
 
         return panel;
+    }
+
+    /**
+     * A single labelled slider row:
+     *
+     *   ● LABEL  [━━━━━━━━━━━━━━━━━━━]  42%
+     *
+     * @param label      short label shown to the left of the slider (e.g. "HSP70")
+     * @param slider     the JSlider to embed
+     * @param valLabel   the JLabel that shows the current value as "xx%"
+     * @param accent     colour for the dot indicator
+     */
+    private JPanel makeSliderRow(String label, JSlider slider, JLabel valLabel, Color accent) {
+        JPanel row = new JPanel(new BorderLayout(6, 0));
+        row.setBackground(BG_SUBPANEL);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+
+        // Left: coloured dot + short label
+        JPanel left = new JPanel(new BorderLayout(4, 0));
+        left.setBackground(BG_SUBPANEL);
+        left.setPreferredSize(new Dimension(58, 20));
+
+        JLabel dot = new JLabel("●");
+        dot.setForeground(accent);
+        dot.setFont(new Font("SansSerif", Font.PLAIN, 8));
+
+        JLabel lbl = new JLabel(label);
+        lbl.setForeground(FG_MUTED);
+        lbl.setFont(new Font("SansSerif", Font.PLAIN, 10));
+
+        left.add(dot, BorderLayout.WEST);
+        left.add(lbl, BorderLayout.CENTER);
+
+        // Right: fixed-width percentage label ("100%")
+        valLabel.setPreferredSize(new Dimension(36, 20));
+        valLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+
+        row.add(left,     BorderLayout.WEST);
+        row.add(slider,   BorderLayout.CENTER);
+        row.add(valLabel, BorderLayout.EAST);
+
+        return row;
+    }
+
+    /**
+     * Creates a themed JSlider spanning 0–100 (percent).
+     * Painting is kept minimal to fit the dark theme.
+     */
+    private JSlider makePhosphoSlider(Color thumbColor) {
+        JSlider slider = new JSlider(JSlider.HORIZONTAL, 0, 100, 0);
+        slider.setBackground(BG_SUBPANEL);
+        slider.setForeground(FG_MUTED);
+        slider.setPaintTicks(false);
+        slider.setPaintLabels(false);
+        slider.setSnapToTicks(false);
+        slider.setOpaque(false);
+        return slider;
+    }
+
+    /** Small bold label for the live slider percentage readout. */
+    private JLabel makeSliderValLabel() {
+        JLabel lbl = new JLabel("0%");
+        lbl.setForeground(FG_MUTED);
+        lbl.setFont(new Font("Monospaced", Font.BOLD, 10));
+        lbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return lbl;
     }
 
     private JPanel makeSubPanel(String title) {
@@ -502,7 +600,7 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
     @SuppressWarnings("unchecked")
     private void fireSolveTask() {
         try {
-            if (currentNetwork != null) syncPhosphoToNetwork(currentNetwork); // NEW
+            if (currentNetwork != null) syncPhosphoToNetwork(currentNetwork);
             TaskManager tm = registrar.getService(TaskManager.class);
             tm.execute(new SolveNetworkTaskFactory(registrar).createTaskIterator());
         } catch (Exception ex) {
@@ -510,7 +608,30 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         }
     }
 
-    // ── Field wiring ──────────────────────────────────────────────────────────
+    // ── Slider wiring ─────────────────────────────────────────────────────────
+
+    /**
+     * Attaches a ChangeListener to {@code slider} that:
+     *   1. Updates the live percentage label ({@code valLabel}) on every move.
+     *   2. When the user releases the slider (or it stops adjusting), writes
+     *      the new fraction (0–1) to the named network-level column.
+     *
+     * The {@code syncingSliders} flag suppresses writes during programmatic
+     * sync (i.e. when a new network or node is selected).
+     */
+    private void wirePhosphoSlider(JSlider slider, JLabel valLabel, String colName) {
+        slider.addChangeListener((ChangeEvent e) -> {
+            int pct = slider.getValue();
+            valLabel.setText(pct + "%");
+
+            // Only commit to the network when the user has finished dragging
+            if (!slider.getValueIsAdjusting() && !syncingSliders && currentNetwork != null) {
+                setNetworkPct(currentNetwork, colName, pct / 100.0);
+            }
+        });
+    }
+
+    // ── Kd field wiring ───────────────────────────────────────────────────────
 
     private void wireTotalNmField() {
         Runnable commit = () -> {
@@ -521,14 +642,9 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
                 double val = Double.parseDouble(txt);
                 if (fldTotalNm.getText().contains("µ") || fldTotalNm.getText().contains("uM"))
                     val *= 1000.0;
-
                 Utils.setDbl(currentNetwork.getRow(currentNode), Columns.COL_TOTAL_NM, val);
                 fldTotalNm.setText(formatNm(val));
-
-                valFree.setText("—");
-                valHsp70.setText("—");
-                valHsp90.setText("—");
-
+                valFree.setText("—"); valHsp70.setText("—"); valHsp90.setText("—");
             } catch (NumberFormatException ignored) {
                 Double v = Utils.getDbl(currentNetwork.getRow(currentNode), Columns.COL_TOTAL_NM);
                 fldTotalNm.setText(formatNm(v));
@@ -549,14 +665,10 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
                 double val = Double.parseDouble(txt);
                 if (fldKduNm.getText().contains("µ") || fldKduNm.getText().contains("uM"))
                     val *= 1000.0;
-
                 Utils.setDbl(currentNetwork.getRow(currentEdge), Columns.COL_KD_U_NM, val);
                 currentNetwork.getRow(currentEdge).set(Utils.mkCol(Columns.COL_HAS_KD), true);
                 fldKduNm.setText(formatNm(val));
-
-                valBound.setText("—");
-                valFracBound.setText("—");
-
+                valBound.setText("—"); valFracBound.setText("—");
             } catch (NumberFormatException ignored) {
                 Double v = Utils.getDbl(currentNetwork.getRow(currentEdge), Columns.COL_KD_U_NM);
                 fldKduNm.setText(v != null ? String.format("%.4g", v) : "—");
@@ -577,14 +689,10 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
                 double val = Double.parseDouble(txt);
                 if (fldKdpNm.getText().contains("µ") || fldKdpNm.getText().contains("uM"))
                     val *= 1000.0;
-
                 Utils.setDbl(currentNetwork.getRow(currentEdge), Columns.COL_KD_P_NM, val);
                 currentNetwork.getRow(currentEdge).set(Utils.mkCol(Columns.COL_HAS_KD), true);
                 fldKdpNm.setText(formatNm(val));
-
-                valBound.setText("—");
-                valFracBound.setText("—");
-
+                valBound.setText("—"); valFracBound.setText("—");
             } catch (NumberFormatException ignored) {
                 Double v = Utils.getDbl(currentNetwork.getRow(currentEdge), Columns.COL_KD_P_NM);
                 fldKdpNm.setText(v != null ? String.format("%.4g", v) : "—");
@@ -596,82 +704,52 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         });
     }
 
-    // NEW
-    private void wirePctPHsp70Field() {
-        Runnable commit = () -> {
-            if (currentNetwork == null) return;
-            try {
-                double pct = parsePercentField(fldPctPHsp70.getText());
-                setNetworkPct(currentNetwork, COL_PCT_P_HSP70, pct / 100.0);
-                fldPctPHsp70.setText(String.format("%.1f", pct));
-            } catch (NumberFormatException ignored) {
-                syncPhosphoFieldsFromNetwork(currentNetwork);
-            }
-        };
-        fldPctPHsp70.addActionListener(e -> commit.run());
-        fldPctPHsp70.addFocusListener(new FocusAdapter() {
-            @Override public void focusLost(FocusEvent e) { commit.run(); }
-        });
-    }
+    // ── Phospho network helpers ───────────────────────────────────────────────
 
-    // NEW
-    private void wirePctPHsp90Field() {
-        Runnable commit = () -> {
-            if (currentNetwork == null) return;
-            try {
-                double pct = parsePercentField(fldPctPHsp90.getText());
-                setNetworkPct(currentNetwork, COL_PCT_P_HSP90, pct / 100.0);
-                fldPctPHsp90.setText(String.format("%.1f", pct));
-            } catch (NumberFormatException ignored) {
-                syncPhosphoFieldsFromNetwork(currentNetwork);
-            }
-        };
-        fldPctPHsp90.addActionListener(e -> commit.run());
-        fldPctPHsp90.addFocusListener(new FocusAdapter() {
-            @Override public void focusLost(FocusEvent e) { commit.run(); }
-        });
-    }
-
-    // NEW
-    private double parsePercentField(String txt) {
-        String cleaned = txt.trim().replace("%", "");
-        double v = Double.parseDouble(cleaned);
-        if (v < 0.0) v = 0.0;
-        if (v > 100.0) v = 100.0;
-        return v;
-    }
-
-    // NEW
+    /** Write a 0–1 fraction to the named column on the network row. */
     private void setNetworkPct(CyNetwork network, String colName, double frac) {
-        Utils.ensureColumn(network.getDefaultNetworkTable(), colName, Double.class);
+        Utils.ensureColumn(network.getDefaultNetworkTable(), colName, Double.class, false);
         network.getRow(network).set(colName, frac);
     }
 
-    // NEW
-    private void syncPhosphoToNetwork(CyNetwork network) {
-        try {
-            double p70 = parsePercentField(fldPctPHsp70.getText()) / 100.0;
-            double p90 = parsePercentField(fldPctPHsp90.getText()) / 100.0;
-            setNetworkPct(network, COL_PCT_P_HSP70, p70);
-            setNetworkPct(network, COL_PCT_P_HSP90, p90);
-        } catch (NumberFormatException ignored) {
-        }
-    }
-
-    // NEW
-    private void syncPhosphoFieldsFromNetwork(CyNetwork network) {
+    /**
+     * Push current network column values into the sliders and value labels.
+     * Uses the {@code syncingSliders} guard so slider ChangeListeners do not
+     * trigger writes back to the network while being moved programmatically.
+     */
+    private void syncPhosphoSlidersFromNetwork(CyNetwork network) {
         if (network == null) return;
-        Utils.ensureColumn(network.getDefaultNetworkTable(), COL_PCT_P_HSP70, Double.class);
-        Utils.ensureColumn(network.getDefaultNetworkTable(), COL_PCT_P_HSP90, Double.class);
+        Utils.ensureColumn(network.getDefaultNetworkTable(), COL_PCT_P_HSP70, Double.class, false);
+        Utils.ensureColumn(network.getDefaultNetworkTable(), COL_PCT_P_HSP90, Double.class, false);
 
         Double p70 = network.getRow(network).get(COL_PCT_P_HSP70, Double.class);
         Double p90 = network.getRow(network).get(COL_PCT_P_HSP90, Double.class);
 
-        fldPctPHsp70.setText(String.format("%.1f", (p70 == null ? 0.0 : p70 * 100.0)));
-        fldPctPHsp90.setText(String.format("%.1f", (p90 == null ? 0.0 : p90 * 100.0)));
+        int pct70 = (int) Math.round((p70 == null ? 0.0 : p70) * 100.0);
+        int pct90 = (int) Math.round((p90 == null ? 0.0 : p90) * 100.0);
+
+        syncingSliders = true;
+        try {
+            sldPhosphoHsp70.setValue(Math.max(0, Math.min(100, pct70)));
+            sldPhosphoHsp90.setValue(Math.max(0, Math.min(100, pct90)));
+            lblPhosphoHsp70Val.setText(pct70 + "%");
+            lblPhosphoHsp90Val.setText(pct90 + "%");
+        } finally {
+            syncingSliders = false;
+        }
     }
 
-    // NEW
+    /**
+     * Flush the current slider positions to the network before solving,
+     * so the solver always reads up-to-date phosphorylation fractions.
+     */
+    private void syncPhosphoToNetwork(CyNetwork network) {
+        setNetworkPct(network, COL_PCT_P_HSP70, sldPhosphoHsp70.getValue() / 100.0);
+        setNetworkPct(network, COL_PCT_P_HSP90, sldPhosphoHsp90.getValue() / 100.0);
+    }
+
+    // ── Misc helpers ──────────────────────────────────────────────────────────
+
     private double safeSlice(List<Double> values, int idx) {
         if (values == null || idx < 0 || idx >= values.size()) return 0.0;
         Double v = values.get(idx);
