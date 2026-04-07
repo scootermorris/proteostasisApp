@@ -36,11 +36,11 @@ public class DataManager {
 
     // CHANGED: richer pies
     static String HSP70_PIE = "piechart: attributelist=\"" + Utils.mkCol(Columns.COL_BOUND)
-            + "\" colorlist=\"#155efd,#6ea8ff,#7c3aed,#c4b5fd\" arcstart=90";
+            + "\" colorlist=\"#155efd,#2563eb,#7c3aed,#6d28d9\" arcstart=90";
     static String HSP90_PIE = "piechart: attributelist=\"" + Utils.mkCol(Columns.COL_BOUND)
-            + "\" colorlist=\"#fd3636,#fca5a5,#b91c1c,#fecaca\" arcstart=90";
+            + "\" colorlist=\"#dc2626,#b91c1c,#991b1b,#7f1d1d\" arcstart=90";
     static String CCTPR_PIE = "piechart: attributelist=\"" + Utils.mkCol(Columns.COL_BOUND)
-            + "\" colorlist=\"#e6c75f,#155efd,#7c3aed,#fd3636,#b91c1c\" arcstart=90";
+            + "\" colorlist=\"#a17800,#155efd,#7c3aed,#dc2626,#991b1b\" arcstart=90";
 
     public static void addData(CyNetwork network, Map<String, CyNode> nodeNameMap,
                         String jsonDataText, boolean update) {

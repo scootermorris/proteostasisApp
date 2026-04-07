@@ -38,7 +38,7 @@ import edu.ucsf.rbvi.proteostasisApp.utils.Utils;
  */
 public class AddNodeTask extends AbstractTask {
     static String INTERACTOR_PIE = "piechart: attributelist=\"" + Utils.mkCol(Columns.COL_BOUND) +
-                                   "\" colorlist=\"#e6c75f,#a06dc7\" arcstart=90";
+                                   "\" colorlist=\"#a17800,#a06dc7\" arcstart=90";
 
     @Tunable(description = "Node name / ID", groups = "New Node")
     public String nodeName = "NewProtein";
