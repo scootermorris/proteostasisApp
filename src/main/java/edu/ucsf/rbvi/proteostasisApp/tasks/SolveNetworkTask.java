@@ -58,13 +58,13 @@ public class SolveNetworkTask extends AbstractTask {
     private static final String COL_PCT_P_HSP90 = "pct_p_hsp90";
 
     @Tunable(description = "Maximum number of iterations")
-    public int MAX_ITER = 400;
+    public Integer max_iter = 400;
 
     @Tunable(description = "Tolerance")
-    public double TOL = 1e-8;
+    public Double tol = 1e-8;
 
     @Tunable(description = "Damping")
-    public double DAMPING = 0.35;
+    public Double damping = 0.35;
 
     private final CyServiceRegistrar registrar;
     private final String solveUrl;
@@ -73,6 +73,13 @@ public class SolveNetworkTask extends AbstractTask {
     SolveNetworkTask(CyServiceRegistrar registrar, String solveUrl) {
         this.registrar = registrar;
         this.solveUrl = solveUrl;
+
+        // If we have tunable values in the network, set those first
+        CyNetwork network = registrar.getService(CyApplicationManager.class).getCurrentNetwork();
+        CyRow row = network.getRow(network);
+        max_iter = Utils.getInt(row, Columns.COL_MAX_ITER);
+        tol = Utils.getDbl(row, Columns.COL_TOLERANCE);
+        damping = Utils.getDbl(row, Columns.COL_DAMPING);
     }
 
     @Override
@@ -84,6 +91,12 @@ public class SolveNetworkTask extends AbstractTask {
             monitor.showMessage(TaskMonitor.Level.WARN, "No current network.");
             return;
         }
+
+        // Save our tunable values in the network as the default
+        CyRow row = network.getRow(network);
+        Utils.setInt(row, Columns.COL_MAX_ITER, max_iter);
+        Utils.setDbl(row, Columns.COL_TOLERANCE, tol);
+        Utils.setDbl(row, Columns.COL_DAMPING, damping);
 
         String networkName = network.getRow(network).get(CyNetwork.NAME, String.class);
         monitor.setStatusMessage("Building request for: " + networkName);
@@ -159,9 +172,9 @@ public class SolveNetworkTask extends AbstractTask {
         root.addProperty("contract_type", CONTRACT_TYPE);
 
         JsonObject opts = new JsonObject();
-        opts.addProperty("maxIter", MAX_ITER);
-        opts.addProperty("tol", TOL);
-        opts.addProperty("damping", DAMPING);
+        opts.addProperty("maxIter", max_iter);
+        opts.addProperty("tol", tol);
+        opts.addProperty("damping", damping);
         root.add("solver_options", opts);
 
         JsonArray nodesArray = new JsonArray();

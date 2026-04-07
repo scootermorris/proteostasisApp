@@ -8,7 +8,9 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -34,7 +36,10 @@ import org.cytoscape.model.CyNetwork;
 import org.cytoscape.model.CyNode;
 import org.cytoscape.model.CyRow;
 import org.cytoscape.service.util.CyServiceRegistrar;
+import org.cytoscape.work.SynchronousTaskManager;
+import org.cytoscape.work.TaskIterator;
 import org.cytoscape.work.TaskManager;
+import org.cytoscape.work.TunableSetter;
 
 import edu.ucsf.rbvi.proteostasisApp.Columns;
 import edu.ucsf.rbvi.proteostasisApp.tasks.AddNodeTaskFactory;
@@ -586,7 +591,7 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         return wrapper;
     }
 
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings("rawtypes")
     private void fireAddInteractorTask() {
         if (currentNode == null) return;
         try {
@@ -597,12 +602,23 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
         }
     }
 
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings("rawtypes")
     private void fireSolveTask() {
         try {
             if (currentNetwork != null) syncPhosphoToNetwork(currentNetwork);
-            TaskManager tm = registrar.getService(TaskManager.class);
-            tm.execute(new SolveNetworkTaskFactory(registrar).createTaskIterator());
+            SynchronousTaskManager tm = registrar.getService(SynchronousTaskManager.class);
+            TunableSetter ts = registrar.getService(TunableSetter.class);
+
+            // Get the tunable values
+            // TODO: These should be taken from the network table or properties
+            Map<String, Object> tunableValues = new HashMap<>();
+            CyRow netRow = currentNetwork.getRow(currentNetwork);
+            tunableValues.put("max_iter", Utils.getInt(netRow, Columns.COL_MAX_ITER));
+            tunableValues.put("tol", Utils.getDbl(netRow, Columns.COL_TOLERANCE));
+            tunableValues.put("damping", Utils.getDbl(netRow, Columns.COL_DAMPING));
+            TaskIterator tasks = new SolveNetworkTaskFactory(registrar).createTaskIterator();
+            TaskIterator tunedTasks = ts.createTaskIterator(tasks, tunableValues);
+            tm.execute(tunedTasks);
         } catch (Exception ex) {
             System.err.println("[ProteostasisApp] Could not fire Solve task: " + ex.getMessage());
         }
@@ -627,6 +643,7 @@ public class ProteostasisResultsPanel extends JPanel implements CytoPanelCompone
             // Only commit to the network when the user has finished dragging
             if (!slider.getValueIsAdjusting() && !syncingSliders && currentNetwork != null) {
                 setNetworkPct(currentNetwork, colName, pct / 100.0);
+                fireSolveTask();
             }
         });
     }

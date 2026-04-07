@@ -37,4 +37,9 @@ public class Columns {
     public static final String COL_KD_P_NM       = "kd_p_nM";
     public static final String COL_HAS_KD        = "has_kd";
     public static final String COL_FRAC_BOUND    = "frac_bound";
+
+    // Solver parameters
+    public static final String COL_TOLERANCE     = "tolerance";
+    public static final String COL_MAX_ITER      = "max_iter";
+    public static final String COL_DAMPING       = "damping";
 }

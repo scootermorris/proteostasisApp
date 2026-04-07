@@ -156,6 +156,7 @@ public class LoadNetworkTask extends AbstractTask {
         // cluster_id → list of member nodes (non-cluster nodes)
         Map<String, List<CyNode>> clusterMembers = new LinkedHashMap<>();
 
+
         for (JsonElement el : nodesJson) {
             if (cancelled) return;
             JsonObject data = el.getAsJsonObject().getAsJsonObject("data");
@@ -215,6 +216,18 @@ public class LoadNetworkTask extends AbstractTask {
             Utils.setStr(row, Columns.COL_SOURCE, sourceId);
             Utils.setStr(row, Columns.COL_TARGET, targetId);
         }
+
+        // Add Network rows
+        CyTable netTable = network.getDefaultNetworkTable();
+        Utils.ensureColumn(netTable, Columns.COL_TOLERANCE,       Double.class);
+        Utils.ensureColumn(netTable, Columns.COL_DAMPING,         Double.class);
+        Utils.ensureColumn(netTable, Columns.COL_MAX_ITER,        Integer.class);
+
+        // Write our default values in those columns
+        CyRow netRow = network.getRow(network);
+        Utils.setDbl(netRow, Columns.COL_TOLERANCE, Double.valueOf(1e-8));
+        Utils.setDbl(netRow, Columns.COL_DAMPING, Double.valueOf(0.35));
+        Utils.setInt(netRow, Columns.COL_MAX_ITER, Integer.valueOf(400));
 
         // 7. Add the data
         //    Note that we already created the rows for the data above, and

@@ -99,6 +99,14 @@ public class Utils {
         return row.get(NAMESPACE + col, Double.class);
     }
 
+    public static void setInt(CyRow row, String col, Integer data) {
+        row.set(NAMESPACE + col, data);
+    }
+
+    public static Integer getInt(CyRow row, String col) {
+        return row.get(NAMESPACE + col, Integer.class);
+    }
+
     public static void setBool(CyRow row, JsonObject data, String key) {
         if (data.has(key) && !data.get(key).isJsonNull())
             row.set(NAMESPACE + key, data.get(key).getAsBoolean());
