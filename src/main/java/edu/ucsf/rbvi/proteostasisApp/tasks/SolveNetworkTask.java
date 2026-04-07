@@ -106,7 +106,7 @@ public class SolveNetworkTask extends AbstractTask {
         JsonObject request = buildRequest(network, nodeNameMap);
         String requestBody = gson.toJson(request);
 
-        System.out.println("Solver request: " + requestBody);
+        // System.out.println("Solver request: " + requestBody);
 
         if (cancelled) return;
         monitor.setStatusMessage("Sending request to " + solveUrl + " …");
@@ -305,7 +305,7 @@ public class SolveNetworkTask extends AbstractTask {
             if (!ok) {
                 throw new IOException("HTTP " + status + " from solver: " + responseBody);
             }
-            System.out.println("Response: " + responseBody);
+            // System.out.println("Response: " + responseBody);
             return responseBody;
         }
     }
