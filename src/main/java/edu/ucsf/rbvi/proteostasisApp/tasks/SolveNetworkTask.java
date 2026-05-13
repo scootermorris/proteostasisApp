@@ -105,6 +105,7 @@ public class SolveNetworkTask extends AbstractTask {
         Map<String, CyNode> nodeNameMap = new HashMap<>();
         JsonObject request = buildRequest(network, nodeNameMap);
         String requestBody = gson.toJson(request);
+        System.out.println(requestBody);
 
         // System.out.println("Solver request: " + requestBody);
 

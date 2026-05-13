@@ -260,6 +260,7 @@ public class LoadNetworkTask extends AbstractTask {
         // Set the default view type to COMPOUND NODE before creating the group
         // so Cytoscape renders the group node as a compound container.
         groupSettingsManager.setGroupViewType(GroupViewType.COMPOUND);
+        groupSettingsManager.setEnableAttributeAggregation(false);;
 
         for (Map.Entry<String, List<CyNode>> entry : clusterMembers.entrySet()) {
             if (cancelled) return;
